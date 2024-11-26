@@ -4,6 +4,7 @@ autoload -Uz colors
 colors
 
 typeset TMPFILE="/tmp/autojump-install-$$$RANDOM"
+typeset ERROR_FILE="/tmp/autojump-install-$$$RANDOM"
 
 spin() {
   local \
@@ -65,7 +66,7 @@ execute() {
 
   {
     for arg in "${args[@]}"; do
-      ${~${=arg}} &>/dev/null
+      ${~${=arg}} &>$ERROR_FILE
       # When an error causes
       if [[ $status -ne 0 ]]; then
         # error mssages
@@ -90,52 +91,63 @@ execute() {
 
   if [[ $status -ne 0 ]]; then
     printf "\033[2K" 2>/dev/null
-    printf "Oops \U2620 ... Try again!\n" 2>/dev/null
+    printf "\n $fg[yellow]\U26A0$reset_color  Error occurred, check the log for more information.\n" 2>/dev/null
+    cat $ERROR_FILE
     exit 1
   fi
 }
 
+inserted_start="# >>> autojump initialize >>>"
+inserted_end="# <<< autojump initialize <<<"
+
 check() {
-  if [[ -d "${HOME}/.autojump" ]]; then
+  sleep 1
+  if [ -d "${HOME}/.autojump" ]; then
     return 1
   fi
 }
 
 install() {
-  git clone https://github.com/wting/autojump.git || exit 1
-  cd autojump || exit 1
-  ./install.py || exit 1
-  cd .. || exit 1
+  git clone https://github.com/wting/autojump.git
+  cd autojump || return 1
+  ./install.py -f || return 1
+  cd .. || return 1
   rm autojump -r
 }
 
 config() {
-  echo "
-  [[ -s /root/.autojump/etc/profile.d/autojump.sh ]] && source /root/.autojump/etc/profile.d/autojump.sh
-  " >>"${HOME}/.zshrc"
-  echo "
-  [[ -s /root/.autojump/etc/profile.d/autojump.sh ]] && source /root/.autojump/etc/profile.d/autojump.sh
-  " >>"${HOME}/.bashrc"
+  local content="[[ -s /root/.autojump/etc/profile.d/autojump.sh ]] && source /root/.autojump/etc/profile.d/autojump.sh"
+  local rc_file=$1
+
+  # Check if the marker already exists
+  if grep -q "$inserted_start" "$rc_file"; then
+    # If the marker exists, replace the content between markers
+    sed -i --follow-symlinks "/$inserted_start/,/$inserted_end/c\\$inserted_start\n$content\n$inserted_end" "$rc_file" || return 1
+  else
+    # If no marker exists, append the content with markers
+    {
+      echo "\n$inserted_start"
+      echo "$content"
+      echo "$inserted_end"
+    } >>"$rc_file" || return 1
+  fi
+
   return
 }
 
 execute \
-  --title \
-  "Checking if ~/.autojump already exist" \
-  --error \
-  "~/.autojump already exist" \
+  --title "Checking if ${HOME}/.autojump already exist" \
+  --error "The ${HOME}/.autojump folder already exists." \
+  --error "(Caution) You should remove it before continue." \
   "check"
 
 execute \
-  --title \
-  "Installing autojump from source to ~/.autojump" \
-  --error \
-  "Is git installed?" \
+  --title "Installing autojump from source to ${HOME}/.autojump" \
+  --error "Failed to install autojump" \
   "install"
 
 execute \
-  --title \
-  "Writing config to rc files" \
-  "config"
+  --title "Writing config to rc files" \
+  "config ${HOME}/.zshrc && config ${HOME}/.bashrc"
 
 printf " All processes are successfully completed \U1F389\n"
