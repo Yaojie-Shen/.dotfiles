@@ -28,3 +28,70 @@ function proxy_off() {
   env | grep -e _PROXY | sort
   echo -e "\nProxy-related environment variables removed."
 }
+
+source_env() {
+  local scope="declare -x"
+
+  print_help() {
+    echo "Usage: source_env [OPTION]... FILE"
+    echo "Load environment variables from FILE."
+    echo
+    echo "Options:"
+    echo "  --local            Set variables in the local scope (default for functions)."
+    echo "  --global           Export variables to the global environment (default)."
+    echo "  --export           Use 'export' to set variables globally."
+    echo "  --help             Display this help and exit."
+    echo
+    echo "FILE must contain key=value pairs, one per line."
+  }
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --local)
+      scope="declare"
+      shift
+      ;;
+    --global)
+      scope="declare -x"
+      shift
+      ;;
+    --export)
+      scope="export"
+      shift
+      ;;
+    --help)
+      print_help
+      return 0
+      ;;
+    -*)
+      echo "Error: Unknown option: $1" >&2
+      print_help
+      return 1
+      ;;
+    *)
+      break
+      ;;
+    esac
+  done
+
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo "Error: File not found or not specified: $file" >&2
+    print_help
+    return 1
+  fi
+
+  echo "Environment variables loaded from '$file':"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+
+    IFS='=' read -r key value <<<"$line"
+
+    if [[ -n "$key" && -n "$value" ]]; then
+      eval "$scope \"$key=\$value\""
+      echo "$key=$value"
+    else
+      echo "Warning: Skipped invalid line: $line" >&2
+    fi
+  done <"$file"
+}
