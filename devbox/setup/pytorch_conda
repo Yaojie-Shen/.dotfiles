@@ -73,7 +73,7 @@ done
 echo -e "${YELLOW}[$(( ${#ENV_OPTIONS[@]} + 1 ))] Create a new environment${NC}"
 
 # Select Conda environment
-read -p "Select Conda environment by number (or enter a new name): " env_index
+read -p "Select a Conda environment by number, or enter a new name after choosing \"Create a new environment\": " env_index
 if [[ "$env_index" =~ ^[0-9]+$ ]] && ((env_index >= 1 && env_index <= ${#ENV_OPTIONS[@]})); then
   env_name="${ENV_OPTIONS[$((env_index - 1))]}"
 elif [[ "$env_index" == $(( ${#ENV_OPTIONS[@]} + 1 )) ]]; then
