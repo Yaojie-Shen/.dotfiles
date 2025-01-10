@@ -1,0 +1,111 @@
+#!/usr/bin/env zsh
+
+autoload -Uz colors
+colors
+
+typeset TMPFILE="/tmp/huggingface-quiet-download-$$$RANDOM"
+typeset -i error_count=0
+
+spin() {
+  local before_msg="$1" after_msg="$2"
+  local spinner
+  local -a spinners
+  spinners=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+
+  # Hide cursor
+  tput civis
+
+  while true; do
+    for spinner in "${spinners[@]}"; do
+      if [[ -f $TMPFILE ]]; then
+        rm -f $TMPFILE
+        tput cnorm
+        return 1
+      fi
+      sleep 0.05
+      printf " $fg[white]$spinner$reset_color  $before_msg\r" 2>/dev/null
+    done
+
+    [ $#jobstates = 0 ] && break
+  done
+
+  if [[ -n $after_msg ]]; then
+    printf "\033[2K"
+    printf " $fg_bold[blue]\U2714$reset_color  $after_msg\n"
+  fi 2>/dev/null
+
+  # Show cursor
+  tput cnorm || true
+}
+
+execute() {
+  local arg title error
+  local -a args errors
+
+  while (($# > 0)); do
+    case "$1" in
+    --title)
+      title="$2"
+      shift
+      ;;
+    -* | --*)
+      return 1
+      ;;
+    *)
+      args+=("$1")
+      ;;
+    esac
+    shift
+  done
+
+  {
+    for arg in "${args[@]}"; do
+      ${~${=arg}} &>/dev/null
+      # Handle errors
+      if [[ $status -ne 0 ]]; then
+        # Print error messages
+        printf "\033[2K" 2>/dev/null
+        printf \
+          " $fg[yellow]\U26A0$reset_color  $title [$fg[red]FAILED$reset_color]\n" \
+          2>/dev/null
+        printf "$status\n" >"$TMPFILE"
+      fi
+    done
+  } &
+
+  spin \
+    "$title" \
+    "$title [$fg[green]SUCCEEDED$reset_color]"
+
+  if [[ $status -ne 0 ]]; then
+    printf "\033[2K" 2>/dev/null
+    return 1
+  fi
+}
+
+# Main script for downloading models
+download_model() {
+  local model_name=$1
+  execute \
+    --title \
+    "Downloading model: $model_name" \
+    "huggingface-cli download $model_name"
+}
+
+# Check if at least one model is provided as input
+if [ $# -lt 1 ]; then
+  printf "$fg[red]Usage: huggingface_quiet_download <model_1> <model_2> ... <model_n>$reset_color\n"
+  exit 1
+fi
+
+# Loop through each model
+for model_name in "$@"; do
+  download_model "$model_name" || ((error_count++))
+done
+
+# Final message
+if [[ $error_count -eq 0 ]]; then
+  printf " $fg[green]All models have been downloaded successfully! \U1F389$reset_color\n"
+else
+  printf " $fg[yellow]Some models failed to download ($error_count failures). Please check the logs. \U26A0$reset_color\n"
+fi
