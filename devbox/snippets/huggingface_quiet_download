@@ -7,12 +7,14 @@ typeset TMPFILE="/tmp/huggingface-quiet-download-$$$RANDOM"
 typeset -i error_count=0
 
 spin() {
-  local before_msg="$1" after_msg="$2"
+  local \
+    before_msg="$1" \
+    after_msg="$2"
   local spinner
   local -a spinners
-  spinners=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  spinners=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
-  # Hide cursor
+  # hide cursor
   tput civis
 
   while true; do
@@ -34,7 +36,7 @@ spin() {
     printf " $fg_bold[blue]\U2714$reset_color  $after_msg\n"
   fi 2>/dev/null
 
-  # Show cursor
+  # show cursor
   tput cnorm || true
 }
 
@@ -48,7 +50,12 @@ execute() {
       title="$2"
       shift
       ;;
-    -* | --*)
+    --error)
+      errors+=("$2")
+      shift
+      ;;
+    -*)
+      echo "Invalid option: $1" >&2
       return 1
       ;;
     *)
@@ -60,15 +67,21 @@ execute() {
 
   {
     for arg in "${args[@]}"; do
-      ${~${=arg}} &>/dev/null
-      # Handle errors
+      eval "$arg" &>$ERROR_FILE
+      # When an error causes
       if [[ $status -ne 0 ]]; then
-        # Print error messages
+        # error mssages
         printf "\033[2K" 2>/dev/null
         printf \
           " $fg[yellow]\U26A0$reset_color  $title [$fg[red]FAILED$reset_color]\n" \
           2>/dev/null
         printf "$status\n" >"$TMPFILE"
+        # additional error messages
+        if (($#errors > 0)); then
+          for error in "${errors[@]}"; do
+            printf "    -> $error\n" 2>/dev/null
+          done
+        fi
       fi
     done
   } &
@@ -79,6 +92,8 @@ execute() {
 
   if [[ $status -ne 0 ]]; then
     printf "\033[2K" 2>/dev/null
+    printf "\n $fg[yellow]\U26A0$reset_color  Error occurred, check the log below for more information.\n" 2>/dev/null
+    cat $ERROR_FILE
     return 1
   fi
 }

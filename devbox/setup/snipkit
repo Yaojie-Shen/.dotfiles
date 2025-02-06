@@ -4,6 +4,7 @@ autoload -Uz colors
 colors
 
 typeset TMPFILE="/tmp/snipkit-install-$$$RANDOM"
+typeset ERROR_FILE="/tmp/snipkit-install-$$$RANDOM"
 
 spin() {
   local \
@@ -11,7 +12,7 @@ spin() {
     after_msg="$2"
   local spinner
   local -a spinners
-  spinners=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+  spinners=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
   # hide cursor
   tput civis
@@ -53,7 +54,8 @@ execute() {
       errors+=("$2")
       shift
       ;;
-    -* | --*)
+    -*)
+      echo "Invalid option: $1" >&2
       return 1
       ;;
     *)
@@ -65,7 +67,7 @@ execute() {
 
   {
     for arg in "${args[@]}"; do
-      ${~${=arg}} &>/dev/null
+      eval "$arg" &>$ERROR_FILE
       # When an error causes
       if [[ $status -ne 0 ]]; then
         # error mssages
@@ -90,31 +92,25 @@ execute() {
 
   if [[ $status -ne 0 ]]; then
     printf "\033[2K" 2>/dev/null
-    printf "Oops \U2620 ... Try again!\n" 2>/dev/null
-    exit 1
+    printf "\n $fg[yellow]\U26A0$reset_color  Error occurred, check the log below for more information.\n" 2>/dev/null
+    cat $ERROR_FILE
+    return 1
   fi
 }
 
-install() {
-  echo 'deb [trusted=yes] https://apt.fury.io/lemoony/ /' | tee /etc/apt/sources.list.d/snipkit.list
-  sudo apt-get update
-  sudo apt-get install -yq --no-install-recommends snipkit
-  return
-}
+execute \
+  --title "Adding source" \
+  --error "Failed to add source" \
+  "echo 'deb [trusted=yes] https://apt.fury.io/lemoony/ /' | tee /etc/apt/sources.list.d/snipkit.list" || exit 1
 
 execute \
-  --title \
-  "Adding source" \
-  "echo 'deb [trusted=yes] https://apt.fury.io/lemoony/ /' | tee /etc/apt/sources.list.d/snipkit.list"
+  --title "Updating package manager" \
+  --error "Failed to update package manager" \
+  "sudo apt-get update" || exit 1
 
 execute \
-  --title \
-  "Updating package manager" \
-  "sudo apt-get update"
-
-execute \
-  --title \
-  "Installing snipkit" \
-  "sudo apt-get install -yq --no-install-recommends snipkit"
+  --title "Installing snipkit" \
+  --error "Failed to install snipkit" \
+  "sudo apt-get install -yq --no-install-recommends snipkit" || exit 1
 
 printf " All processes are successfully completed \U1F389\n"
