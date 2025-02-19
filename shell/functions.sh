@@ -29,7 +29,7 @@ function proxy_off() {
   echo -e "\nProxy-related environment variables removed."
 }
 
-source_env() {
+function source_env() {
   local scope="declare -x"
 
   print_help() {
@@ -94,4 +94,16 @@ source_env() {
       echo "Warning: Skipped invalid line: $line" >&2
     fi
   done <"$file"
+}
+
+# Run python script from url
+# Usage:
+#   python_from_url <url> <param-1> <param-2>...
+python_from_url() {
+  if [[ -z $1 ]]; then
+    echo "Error: No url provided."
+    echo "Usage: python_from_url <url> <param-1> <param-2> ..."
+    return
+  fi
+  wget -qO- "$1" | python - "${@:2}"
 }
