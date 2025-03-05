@@ -8,6 +8,11 @@
       description: ">>> Oh-My-Zsh"
     - command: curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
       description: ">>> Zplug"
+    - command: |
+        git clone --depth=1 https://github.com/Bash-it/bash-it.git ~/.bash_it && 
+        printf "\nplugins tmux git history-search history-substring-search autojump gitstatus history alias-completion\n" >> ~/.bash_it/profiles/default.bash_it && 
+        ~/.bash_it/install.sh --silent
+      description: ">>> Bash-it"
 
 - clean: [ '~' ]
 

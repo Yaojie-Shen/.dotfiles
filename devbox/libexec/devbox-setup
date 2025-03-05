@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Summary: Run devbox setup scripts
 # Usage: devbox setup -l|--list
-#        devbox setup <script_name>
+#        devbox setup <script_name> [<args>]
 
 set -e
 [ -n "$DEVBOX_DEBUG" ] && set -x
