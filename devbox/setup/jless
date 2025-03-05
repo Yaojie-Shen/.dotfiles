@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+JLESS_BIN=${1:-"https://github.com/PaulJuliusMartinez/jless/releases/download/v0.9.0/jless-v0.9.0-x86_64-unknown-linux-gnu.zip"}
+
+# Check if jless is already installed
+if command -v jless &>/dev/null; then
+  printf "\e[31mjless is already installed\e[0m\n"
+  exit 0
+fi
+
+curl -L $JLESS_BIN -o /tmp/jless.zip -f || exit 1
+unzip -o /tmp/jless.zip -d /tmp jless || exit 1
+sudo mv /tmp/jless /usr/local/bin/jless || exit 1
+
+rm /tmp/jless.zip
+
+printf "\n"
+/usr/local/bin/jless --help || exit 1
+printf "\n\e[32mjless installed successfully! \e[0m\n"
