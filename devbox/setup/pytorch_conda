@@ -2,6 +2,7 @@
 
 # Define PyTorch versions, torchvision, torchaudio, and corresponding CUDA versions
 declare -A TORCH_CONFIGS
+TORCH_CONFIGS["2.5.1"]="0.20.1:2.5.1 11.8 12.1 12.4 cpuonly"
 TORCH_CONFIGS["2.5.0"]="0.20.0:2.5.0 11.8 12.1 12.4 cpuonly"
 TORCH_CONFIGS["2.4.1"]="0.19.1:2.4.1 11.8 12.1 12.4 cpuonly"
 TORCH_CONFIGS["2.4.0"]="0.19.0:2.4.0 11.8 12.1 12.4 cpuonly"
