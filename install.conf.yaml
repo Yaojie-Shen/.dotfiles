@@ -4,6 +4,10 @@
       relink: true
 
 - shell:
+    - command: sudo apt-get update
+      description: ">>> Update"
+    - command: sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano
+      description: ">>> Install basic packages"
     - command: sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
       description: ">>> Oh-My-Zsh"
     - command: curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
@@ -19,10 +23,10 @@
 - link:
     ~/.zshrc:
       force: true
-    ~/.condarc:
+    # ~/.condarc:
     ~/.tmux.conf:
     ~/.persistent:
     ~/.shell:
     ~/.devbox:
-    ~/Downloads: persistent/Downloads
-    ~/Projects: persistent/Projects
+    # ~/Downloads: persistent/Downloads
+    # ~/Projects: persistent/Projects
