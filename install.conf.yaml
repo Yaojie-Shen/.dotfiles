@@ -6,7 +6,7 @@
 - shell:
     - command: sudo apt-get update
       description: ">>> Update"
-    - command: sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano
+    - command: sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano neofetch
       description: ">>> Install basic packages"
     - command: sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
       description: ">>> Oh-My-Zsh"
@@ -25,8 +25,8 @@
       force: true
     # ~/.condarc:
     ~/.tmux.conf:
-    ~/.persistent:
+    # ~/.persistent:
     ~/.shell:
-    ~/.devbox:
+    # ~/.devbox:
     # ~/Downloads: persistent/Downloads
     # ~/Projects: persistent/Projects
