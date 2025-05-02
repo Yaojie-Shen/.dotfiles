@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# @Time    : 5/3/25
+# @Author  : Yaojie Shen
+# @Project : dotfiles
+# @File    : count_empty_folder
+import argparse
+import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+
+def is_empty_dir(path):
+    """Check if a given path is an empty directory."""
+    try:
+        return os.path.isdir(path) and not os.listdir(path)
+    except Exception:
+        return False
+
+
+def main(root_path, max_in_flight=1000):
+    print(f"Scanning path: {root_path}")
+
+    start_time = time.time()
+
+    print("Listing directory entries...")
+    t0 = time.time()
+    try:
+        entries = [os.path.join(root_path, name) for name in os.listdir(root_path)]
+    except Exception as e:
+        print(f"Failed to list {root_path}: {e}")
+        sys.exit(1)
+    t1 = time.time()
+    print(f"Listed {len(entries)} entries in {t1 - t0:.2f} seconds.")
+
+    if not entries:
+        print("No entries found.")
+        return
+
+    empty_dirs = []
+    verbose = args.verbose
+    checked = 0
+    total = len(entries)
+    last_log_time = time.time()
+
+    print("Starting scanning...")
+    t0 = time.time()
+
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+        try:
+            futures = {}
+            entries_iter = iter(entries)
+
+            while True:
+                # Fill up the futures up to max_in_flight
+                while len(futures) < max_in_flight:
+                    try:
+                        entry = next(entries_iter)
+                        future = executor.submit(is_empty_dir, entry)
+                        futures[future] = entry
+                    except StopIteration:
+                        break
+
+                # Process completed futures
+                if futures:
+                    done, _ = wait_for_some(futures)
+                    for future in done:
+                        entry = futures.pop(future)
+                        if future.result():
+                            empty_dirs.append(entry)
+                        checked += 1
+
+                        now = time.time()
+                        if now - last_log_time >= 1 or checked == total:
+                            percent = (checked / total) * 100
+                            print(f"[{percent:6.1f}%] Checked {checked}/{total} entries "
+                                  f"(Empty found: {len(empty_dirs)}, {len(empty_dirs) / checked * 100:.2f})%")
+                            last_log_time = now
+                else:
+                    # No more futures and no more entries
+                    break
+        except KeyboardInterrupt:
+            print("\nOperation interrupted by user.")
+            executor.shutdown(wait=False, cancel_futures=True)
+            sys.exit(1)
+
+    t1 = time.time()
+    print(f"Finished scanning in {t1 - t0:.2f} seconds.")
+
+    if verbose:
+        print(f"\nEmpty directories found: {len(empty_dirs)}")
+        for d in empty_dirs:
+            print(f" - {d}")
+    else:
+        print(f"Empty directories found: {len(empty_dirs)}")
+
+    print(f"Total elapsed time: {time.time() - start_time:.2f} seconds")
+
+
+def wait_for_some(futures_dict):
+    """Helper to wait for some futures to complete."""
+    from concurrent.futures import wait, FIRST_COMPLETED
+    done, not_done = wait(futures_dict.keys(), return_when=FIRST_COMPLETED)
+    return done, not_done
+
+
+if __name__ == "__main__":
+    try:
+        parser = argparse.ArgumentParser(description="Scan immediate subdirectories for emptiness.")
+        parser.add_argument("path", help="Root path to scan")
+        parser.add_argument("-v", "--verbose", action="store_true",
+                            help="Enable verbose output to list all empty directories.")
+        args = parser.parse_args()
+
+        if not os.path.isdir(args.path):
+            print(f"Error: {args.path} is not a valid directory.")
+            sys.exit(1)
+
+        main(args.path)
+    except KeyboardInterrupt:
+        print("\nOperation interrupted by user.")
+        sys.exit(1)
