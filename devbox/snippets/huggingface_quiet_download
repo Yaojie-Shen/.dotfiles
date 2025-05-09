@@ -4,6 +4,7 @@ autoload -Uz colors
 colors
 
 typeset TMPFILE="/tmp/huggingface-quiet-download-$$$RANDOM"
+typeset ERROR_FILE="/tmp/huggingface-quiet-download-$$$RANDOM"
 typeset -i error_count=0
 
 spin() {
