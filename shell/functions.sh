@@ -107,3 +107,7 @@ python_from_url() {
   fi
   wget -qO- "$1" | python - "${@:2}"
 }
+
+lsl() {
+  ls $@ | less
+}
