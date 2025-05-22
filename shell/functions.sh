@@ -111,3 +111,13 @@ python_from_url() {
 lsl() {
   ls $@ | less
 }
+
+append_pythonpath() {
+  if [[ -z $1 ]]; then
+    export PYTHONPATH=$(pwd):$PYTHONPATH
+    echo "Append $(pwd) to PYTHONPATH"
+  else
+    export PYTHONPATH="$PYTHONPATH:$1"
+    echo "Append $1 to PYTHONPATH"
+  fi
+}
