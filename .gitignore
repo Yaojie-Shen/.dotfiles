@@ -164,4 +164,3 @@ cython_debug/
 .DS_Store
 
 persistent/
-shell/custom.sh
