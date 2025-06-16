@@ -1,2 +1,25 @@
 envs_dirs:
   - ~/.persistent/env
+
+channels:
+  - defaults
+  - conda-forge
+
+# Docs:
+# - https://docs.conda.io/projects/conda/en/stable/user-guide/configuration/settings.html#create-default-packages-always-add-packages-by-default
+create_default_packages:
+  - python==3.12
+  - pip
+  - ipython
+  - tqdm
+  - joblib
+  - rich
+  - colorlog
+  - matplotlib
+  - tabulate
+  - pyyaml
+  - fire
+  - hydra-core
+  - hydra-zen
+
+default_threads: 32
