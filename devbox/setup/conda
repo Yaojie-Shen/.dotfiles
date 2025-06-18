@@ -1,86 +1,26 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 RED='\033[0;31m'
 GREEN='\033[1;32m'
+BLUE='\033[1;34m'
 YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-# Save the current terminal state and clear the screen
-tput smcup
-tput civis
-clear
-
-# Prompt the user for yes/no response and only accept valid inputs
-prompt_yes_no() {
-  local prompt="$1"
-  tput sc # Save the cursor position
-  local yn=""
-  while true; do
-    tput rc # Restore the cursor position
-    tput el # Clear to the end of the line
-    printf "${CYAN}$prompt${NC} [y/n] "
-    read -n 1 -s yn
-    case $yn in
-    [Yy]*)
-      echo "$yn"
-      tput ed
-      return 0
-      ;;
-    [Nn]*)
-      echo "$yn"
-      tput ed
-      return 1
-      ;;
-    *)
-      tput rc
-      tput ed
-      printf "\n${YELLOW}Please answer yes [y] or no [n].${NC}\n"
-      ;;
-    esac
-  done
+info() {
+  printf "${BLUE}==>${NC} ${BOLD}%s${NC}\n" "$1"
 }
 
-# Handle cleanup on exit
-cleanup() {
-  # Restore the saved terminal state
-  tput rmcup
-  tput cnorm
-  clear
+warning() {
+  printf "${YELLOW}Warning:${NC} %s\n" "$1"
 }
 
-# Set up a trap to catch the script exit and call the cleanup function
-trap cleanup EXIT
+error() {
+  printf "${RED}Error:${NC} %s\n" "$1"
+}
 
-# Print stylized flowing text
-flowing() {
-  local text="$1"
-  local line word lines=()
-  local -i prompt_indent=2
-  local -i wizard_columns=$(tput cols)
-  local -i wizard_lines=$(tput lines)
-
-  local line_width=0
-  for word in $text; do
-    if [[ $line_width -gt 0 && $(($line_width + ${#word} + 1)) -ge $wizard_columns ]]; then
-      lines+=("$line")
-      line="$word"
-      line_width=${#word}
-    else
-      if [[ $line_width -gt 0 ]]; then
-        line="$line $word"
-        ((line_width += ${#word} + 1))
-      else
-        line="$word"
-        line_width=${#word}
-      fi
-    fi
-  done
-  lines+=("$line")
-
-  for line in "${lines[@]}"; do
-    echo -e "$line"
-  done
+success() {
+  printf "${GREEN}==>${NC} ${BOLD}%s${NC}\n" "$1"
 }
 
 install_miniconda() {
@@ -90,45 +30,22 @@ install_miniconda() {
   rm -rf "${HOME}/miniconda3/miniconda.sh"
 }
 
-# Welcome message
-flowing "---------––-------------"
-flowing "${GREEN} Miniconda Setup Wizard${NC}"
-flowing "---------––-------------"
-flowing ""
+initialize_miniconda() {
+  "${HOME}/miniconda3/bin/conda" init $@
+}
 
 # Install Miniconda
-flowing "${GREEN}> Starting Miniconda installation...${NC}"
-flowing ""
+info "Installing Miniconda..."
 if [ -d "${HOME}/miniconda3" ]; then
-  flowing "${RED}${HOME}/miniconda3 already exists, skipping installation.${NC}"
+  warning "${HOME}/miniconda3 already exists, skipping installation."
 else
   install_miniconda
-  flowing "${GREEN}Miniconda installation complete.${NC}"
+  success "Miniconda installation complete."
 fi
-flowing ""
 
-flowing "${GREEN}> Configuration...${NC}"
-flowing ""
-if prompt_yes_no "Do you want to initialize Conda for your shell?"; then
-  read -p "$(printf "${YELLOW}Please enter the shell you are using (e.g., bash, zsh, etc.): ${NC}")" shell_type
-  "${HOME}/miniconda3/bin/conda" init "$shell_type"
-fi
-flowing ""
+# Shell env
+info "Initializing Miniconda for your shell (bash and zsh)..."
+initialize_miniconda bash zsh
 
-if prompt_yes_no "Do you want to set auto_activate_base to false?"; then
-  "${HOME}/miniconda3/bin/conda" config --set auto_activate_base false
-fi
-flowing ""
-
-# Completion message
-flowing "---------–--–----------"
-flowing "${GREEN} Conda setup complete!${NC}"
-flowing "-----------––----------"
-
-# Prompt to press Enter to exit
-flowing ""
-flowing "Press Enter to exit..."
-read -r
-
-# Exit the script
-exit 0
+# Completion
+success "Conda setup complete."

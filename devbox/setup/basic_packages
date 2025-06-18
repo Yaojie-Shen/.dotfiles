@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 declare -A osInfo
 osInfo[/etc/redhat-release]=yum
@@ -19,7 +19,7 @@ done
 case "$pkg_manager" in
   apt-get)
     sudo apt-get update
-    sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano
+    sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano atop
     ;;
   *)
     echo "Distribution not supported."
