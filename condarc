@@ -8,7 +8,7 @@ channels:
 # Docs:
 # - https://docs.conda.io/projects/conda/en/stable/user-guide/configuration/settings.html#create-default-packages-always-add-packages-by-default
 create_default_packages:
-  - python==3.12
+  - python==3.11.2
   - pip
   - ipython
   - tqdm
@@ -23,3 +23,5 @@ create_default_packages:
   - hydra-zen
 
 default_threads: 32
+
+auto_activate_base: false
