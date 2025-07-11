@@ -123,8 +123,47 @@ append_pythonpath() {
 }
 
 set_gpu() {
-  export CUDA_VISIBLE_DEVICES=$1
-  echo "Set CUDA_VISIBLE_DEVICES to $1"
+  local input="$1"
+  local output=""
+
+  if [[ -z "$input" ]]; then
+    # empty, disable all gpu (cpu-only)
+    output=""
+  elif [[ "$input" =~ ^[0-9]+-[0-9]+$ ]]; then
+    # range
+    local start=${input%-*}
+    local end=${input#*-}
+
+    if ! [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ ]]; then
+      echo "Invalid range: $input (must be integers)"
+      return 1
+    fi
+
+    if ((start > end)); then
+      echo "Invalid range: start must be <= end"
+      return 1
+    fi
+
+    for ((i = start; i <= end; i++)); do
+      if [[ -z "$output" ]]; then
+        output="$i"
+      else
+        output="$output,$i"
+      fi
+    done
+  elif [[ "$input" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+    # comma-separated integers
+    output="$input"
+  elif [[ "$input" =~ ^[0-9]+$ ]]; then
+    # integer
+    output="$input"
+  else
+    echo "Invalid input: \"$input\" (must be integer, range or comma-separated integers)"
+    return 1
+  fi
+
+  export CUDA_VISIBLE_DEVICES="$output"
+  echo "Set CUDA_VISIBLE_DEVICES=\"$output\""
 }
 
 unset_gpu() {
