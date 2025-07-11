@@ -1,4 +1,4 @@
-function proxy_on() {
+proxy_on() {
   if [[ -z $1 ]]; then
     echo "Error: No proxy address provided."
     echo "Usage: proxy_on <proxy_address> [no_proxy_list]"
@@ -16,7 +16,7 @@ function proxy_on() {
   echo -e "\nProxy-related environment variables set."
 }
 
-function proxy_off() {
+proxy_off() {
   variables=(
     "HTTP_PROXY" "HTTPS_PROXY" "FTP_PROXY" "SOCKS_PROXY" "NO_PROXY"
   )
@@ -29,7 +29,7 @@ function proxy_off() {
   echo -e "\nProxy-related environment variables removed."
 }
 
-function source_env() {
+source_env() {
   local scope="declare -x"
 
   print_help() {
@@ -120,4 +120,14 @@ append_pythonpath() {
     export PYTHONPATH="$PYTHONPATH:$1"
     echo "Append $1 to PYTHONPATH"
   fi
+}
+
+set_gpu() {
+  export CUDA_VISIBLE_DEVICES=$1
+  echo "Set CUDA_VISIBLE_DEVICES to $1"
+}
+
+unset_gpu() {
+  unset CUDA_VISIBLE_DEVICES
+  echo "Unset CUDA_VISIBLE_DEVICES"
 }
