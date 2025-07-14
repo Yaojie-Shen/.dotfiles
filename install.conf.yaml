@@ -11,7 +11,7 @@
     - command: |
         git clone --depth=1 https://github.com/Bash-it/bash-it.git ~/.bash_it && 
         printf "\nplugins tmux git history-search history-substring-search autojump gitstatus history alias-completion\n" >> ~/.bash_it/profiles/default.bash_it && 
-        ~/.bash_it/install.sh --silent
+        ~/.bash_it/install.sh --no-modify-config
       description: ">>> Bash-it"
 
 - clean: [ '~' ]
