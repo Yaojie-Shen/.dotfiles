@@ -45,9 +45,7 @@ configure_autojump() {
   else
     # If no marker exists, append the content with markers
     {
-      echo "\n$inserted_start"
-      echo "$content"
-      echo "$inserted_end"
+      echo -e "\n$inserted_start\n$content\n$inserted_end\n"
     } >>"$rc_file" || return 1
   fi
 
