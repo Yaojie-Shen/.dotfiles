@@ -171,9 +171,9 @@ unset_gpu() {
   echo "Unset CUDA_VISIBLE_DEVICES"
 }
 
+# Show GPU usage.
 g() {
-  which nvitop >/dev/null
-  if [[ $? -ne 0 ]]; then
+  if ! which nvitop >/dev/null; then
     echo "nvitop not found"
   else
     nvitop
@@ -182,7 +182,7 @@ g() {
 
   # Fallback to use nvtop
   which nvtop >/dev/null
-  if [[ $? -ne 0 ]]; then
+  if ! which nvtop >/dev/null; then
     echo "nvtop not found"
   else
     nvtop
@@ -190,8 +190,7 @@ g() {
   fi
 
   # Fallback to use nvidia-smi
-  which nvidia-smi >/dev/null
-  if [[ $? -ne 0 ]]; then
+  if ! which nvidia-smi >/dev/null; then
     echo "nvidia-smi not found"
   else
     watch -n 1 nvidia-smi

@@ -1,8 +1,5 @@
 export HYDRA_FULL_ERROR=1
 
-# Set zsh history to persistent folder
-export HISTFILE="${HOME}/.persistent/.zsh_history"
-
 # Set huggingface cache to persistent folder
 export HF_HOME="${HOME}/.persistent/cache/huggingface"
 # Set pip cache dir to persistent folder

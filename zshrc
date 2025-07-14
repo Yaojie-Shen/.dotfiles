@@ -1,3 +1,6 @@
+# History
+source "${HOME}/.shell/history.zshrc"
+
 # Oh My Zsh
 source "${HOME}/.shell/oh-my-zsh.zshrc"
 
