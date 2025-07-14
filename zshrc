@@ -20,4 +20,4 @@ source "${HOME}/.shell/exports.sh"
 source "${HOME}/.shell/functions.sh"
 
 # Custom
-source "${HOME}/.shell/custom.zshrc"
+source "${HOME}/.shell/custom.sh"
