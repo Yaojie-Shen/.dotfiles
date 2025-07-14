@@ -19,6 +19,8 @@
 - link:
     ~/.zshrc:
       force: true
+    ~/.bashrc:
+      force: true
     ~/.condarc:
     ~/.tmux.conf:
     ~/.persistent:
