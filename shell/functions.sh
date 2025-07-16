@@ -122,6 +122,20 @@ append_pythonpath() {
   fi
 }
 
+# Set IPython as the default debugger
+# Note: Only valid since python 3.7
+set_ipython() {
+  if ! python3 -c "import IPython" &>/dev/null; then
+    echo -e "\033[31mIPython not found, installing...\033[0m"
+    pip3 install ipython
+  fi
+  export PYTHONBREAKPOINT="IPython.embed"
+}
+
+unset_ipython() {
+  unset PYTHONBREAKPOINT
+}
+
 set_gpu() {
   local input="$1"
   local output=""
