@@ -35,7 +35,7 @@ install_autojump() {
 }
 
 configure_autojump() {
-  local content="[[ -s \"${HOME}/.autojump/etc/profile.d/autojump.sh\" ]] && source \"${HOME}/.autojump/etc/profile.d/autojump.sh\""
+  local content='[[ -s "${HOME}/.autojump/etc/profile.d/autojump.sh" ]] && source "${HOME}/.autojump/etc/profile.d/autojump.sh"'
   local rc_file=$1
 
   # Check if the marker already exists
