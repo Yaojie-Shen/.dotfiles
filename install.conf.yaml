@@ -29,3 +29,4 @@
     ~/Downloads: persistent/Downloads
     ~/Projects: persistent/Projects
     ~/.local/share/autojump: persistent/autojump # Cached path db for autojump
+    ~/.config/nvim: nvim
