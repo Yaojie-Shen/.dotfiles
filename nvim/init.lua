@@ -35,3 +35,5 @@ require "autocmds"
 vim.schedule(function()
   require "mappings"
 end)
+
+vim.o.shell = "/usr/bin/zsh"
