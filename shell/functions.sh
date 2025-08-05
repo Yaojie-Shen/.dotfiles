@@ -185,6 +185,10 @@ unset_gpu() {
   echo "Unset CUDA_VISIBLE_DEVICES"
 }
 
+get_gpu() {
+  echo "$CUDA_VISIBLE_DEVICES"
+}
+
 # Show GPU usage.
 g() {
   if ! which nvitop >/dev/null; then
