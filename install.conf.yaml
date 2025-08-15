@@ -13,13 +13,19 @@
         printf "\nplugins tmux git history-search history-substring-search autojump gitstatus history alias-completion\n" >> ~/.bash_it/profiles/default.bash_it && 
         ~/.bash_it/install.sh --no-modify-config
       description: ">>> Bash-it"
+    - command: cp ~/.zshrc ~/.zshrc.backup.$(date +%Y%m%d)_$(print -l ~/.zshrc.backup.*(N) | wc -l)
+      description: ">>> Backup .zshrc"
+    - command: cp ~/.bashrc ~/.bashrc.backup.$(date +%Y%m%d)_$(print -l ~/.bashrc.backup.*(N) | wc -l)
+      description: ">>> Backup .bashrc"
 
 - clean: [ '~' ]
 
 - link:
     ~/.dotfiles: ""
     ~/.zshrc:
+      force: true
     ~/.bashrc:
+      force: true
     ~/.condarc:
     ~/.tmux.conf:
     ~/.persistent:
