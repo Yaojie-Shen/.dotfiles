@@ -6,9 +6,13 @@ proxy_on() {
   fi
 
   export HTTP_PROXY="$1"
+  export http_proxy=$HTTP_PROXY
   export HTTPS_PROXY=$HTTP_PROXY
+  export https_proxy=$HTTPS_PROXY
   export FTP_PROXY=$HTTP_PROXY
+  export ftp_proxy=$FTP_PROXY
   export SOCKS_PROXY=$HTTP_PROXY
+  export socks_proxy=$SOCKS_PROXY
 
   export NO_PROXY="${2:-localhost,127.0.0.1}"
 
@@ -19,6 +23,7 @@ proxy_on() {
 proxy_off() {
   variables=(
     "HTTP_PROXY" "HTTPS_PROXY" "FTP_PROXY" "SOCKS_PROXY" "NO_PROXY"
+    "http_proxy" "https_proxy" "ftp_proxy" "socks_proxy" "no_proxy"
   )
 
   for i in "${variables[@]}"; do
