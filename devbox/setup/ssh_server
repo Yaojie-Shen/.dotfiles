@@ -1,0 +1,27 @@
+#!/bin/bash
+
+setup_ssh() {
+  local PORT="$1"
+
+  if [ ! -d ~/.ssh ]; then
+    mkdir ~/.ssh
+  fi
+  cd ~/.ssh || return 1
+
+  ssh-keygen -t rsa -b 4096 -f ssh_host_rsa_key -N ""
+
+  # sshd re-exec requires execution with an absolute path
+  /usr/sbin/sshd -h ~/.ssh/ssh_host_rsa_key -p "${PORT}"
+
+  echo "+-----------------+"
+  printf "| SSH port: %5s |\n" "$PORT"
+  echo "+-----------------+"
+}
+
+# Ensure port argument is valid
+if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -lt 1024 ] || [ "$1" -gt 65535 ]; then
+  echo "Invalid port number. Please provide a port number between 1024 and 65535."
+  exit 1
+fi
+
+setup_ssh "$1"
