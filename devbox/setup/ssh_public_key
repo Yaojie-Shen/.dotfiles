@@ -5,7 +5,7 @@ is_public_key() {
     local key="$1"
 
     if [[ -z "$key" ]]; then
-        return 0
+        return 1
     fi
     if [[ "$key" =~ ^ssh-(rsa|ed25519|ecdsa|dsa)\ [A-Za-z0-9+/]+=*(\ .*)?$ ]]; then
         return 0
@@ -51,10 +51,11 @@ fi
 # Check parameter $1 format and add public key. Raise error if failed.
 is_public_key "$1"
 if [[ ! $? -eq 0 ]]; then
-  echo -e "${RED}${BOLD}[!] ERROR: Invalid public key!${RESET}"
+  echo -e "${RED}${BOLD}[!] ERROR: Invalid public key: \"${1}\"${RESET}"
   echo ""
   help
   exit 1
 fi
+
 add_public_key "$1"
 echo -e "${GREEN}${BOLD}[*] SUCCESS: Public key added!${RESET}"
