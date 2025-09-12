@@ -6,4 +6,5 @@ export DEVBOX_ROOT=${DEVBOX_ROOT:-"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 eval "$(devbox init -)"
 source "$DEVBOX_ROOT/completions/devbox.zsh"
 
-devbox $@
+# NOTE: wrap with double quotes to preserve undesired word splitting
+devbox "$@"
