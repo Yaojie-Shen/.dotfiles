@@ -31,7 +31,7 @@ install_autojump() {
   cd autojump || return 1
   ./install.py -f || return 1
   cd .. || return 1
-  rm autojump -r
+  rm -rf autojump
 }
 
 configure_autojump() {
