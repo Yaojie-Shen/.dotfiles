@@ -19,7 +19,7 @@ done
 case "$pkg_manager" in
   apt-get)
     sudo apt-get update
-    sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano atop
+    sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano atop git-lfs
     ;;
   *)
     echo "Distribution not supported."
