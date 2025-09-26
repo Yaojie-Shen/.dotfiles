@@ -19,7 +19,15 @@ done
 case "$pkg_manager" in
   apt-get)
     sudo apt-get update
-    sudo apt-get install -y zsh nvtop htop speedometer rsync tmux aria2 nano atop git-lfs
+
+    sudo apt-get install -y zsh rsync tmux aria2 nano git-lfs
+
+    # System monitoring
+    sudo apt-get install -y nvtop htop speedometer atop
+
+    # Required by some LSP server for neovim
+    sudo apt-get install -y npm python3-venv
+
     ;;
   *)
     echo "Distribution not supported."
