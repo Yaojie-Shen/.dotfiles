@@ -1,7 +1,7 @@
 return {
   {
     "j-hui/fidget.nvim",
-    event = "LspAttach", -- 当 LSP 启动时加载
+    event = "LspAttach", -- Load fidget when LSP is attached
     opts = {
       progress = {
         display = {
