@@ -14,6 +14,20 @@ return {
     end,
   },
 
+  -- Automate LSP installation
+  {
+    "mason-org/mason-lspconfig.nvim",
+    event = "VeryLazy",
+    opts = {
+      ensure_installed = { "pyright", "jsonls", "yamlls", "bashls", "html", "cssls", "lua_ls" },
+      automatic_enable = true,
+    },
+    dependencies = {
+      { "mason-org/mason.nvim", opts = {} },
+      "neovim/nvim-lspconfig",
+    },
+  },
+
   -- test new blink
   { import = "nvchad.blink.lazyspec" },
 
