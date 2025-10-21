@@ -28,8 +28,8 @@ case "$pkg_manager" in
     # Required by some LSP server for neovim
     sudo apt-get install -y npm python3-venv
 
-    # Required by neovim telescope
-    sudo apt-get install -y fd-find
+    # Required by neovim telescope, optional but useful.
+    sudo apt-get install -y fd-find ripgrep
 
     ;;
   *)
