@@ -10,3 +10,5 @@ map("i", "jk", "<ESC>")
 -- map({ "n", "i", "v" }, "<C-s>", "<cmd> w <cr>")
 map("n", "<C-s>", ":w<CR>", { noremap = true, silent = true })
 map("i", "<C-s>", "<Esc>:w<CR>a", { noremap = true, silent = true })
+
+map('n', '<leader>td', ':TodoTelescope<CR>', { noremap = true, silent = true, desc = "telescope project todo-comments" })
