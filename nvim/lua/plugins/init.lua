@@ -2,8 +2,20 @@ return {
   -- Formatter
   {
     "stevearc/conform.nvim",
-    -- event = 'BufWritePre', -- uncomment for format on save
-    opts = require "configs.conform",
+    event = { "VeryLazy", "BufReadPre", "BufNewFile" },
+    opts = {
+      formatters_by_ft = {
+        lua = { "stylua" },
+        css = { "prettier" },
+        html = { "prettier" },
+        python = { "isort", "autopep8" },
+      },
+      -- format_on_save = {
+      --   -- These options will be passed to conform.format()
+      --   timeout_ms = 500,
+      --   lsp_fallback = true,
+      -- },
+    },
   },
 
   -- Load lspconfig in lua/configs/lspconfig.lua
@@ -17,7 +29,7 @@ return {
   -- Automate LSP installation
   {
     "mason-org/mason-lspconfig.nvim",
-    event = "VeryLazy",
+    event = { "VeryLazy", "BufReadPre", "BufNewFile" },
     opts = {
       ensure_installed = { "pyright", "jsonls", "yamlls", "bashls", "html", "cssls", "lua_ls" },
       automatic_enable = true,
@@ -28,39 +40,53 @@ return {
     },
   },
 
+  -- Automate formatter install
+  {
+    "jay-babu/mason-null-ls.nvim",
+    event = { "VeryLazy", "BufReadPre", "BufNewFile" },
+    dependencies = {
+      "williamboman/mason.nvim",
+      "nvimtools/none-ls.nvim",
+    },
+    opts = {
+      ensure_installed = { "stylua", "autopep8", "isort", "prettier" },
+    },
+  },
+
   -- test new blink
   { import = "nvchad.blink.lazyspec" },
 
   {
-  	"nvim-treesitter/nvim-treesitter",
-  	opts = {
-  		ensure_installed = {
-  			"vim", "lua", "vimdoc", "html", "css",
-        "python", "bash", "c", "cpp",
-        "csv", "json", "yaml",
-  		},
-  	},
+    "nvim-treesitter/nvim-treesitter",
+    opts = {
+      ensure_installed = { "vim", "lua", "vimdoc", "html", "css", "python", "bash", "c", "cpp", "csv", "json", "yaml" },
+    },
   },
 
   -- Tree view: file explorer
   {
     "nvim-tree/nvim-tree.lua",
+    event = "VeryLazy",
     opts = {
       filters = {
-        dotfiles = false,      -- Show dotfiles
-        git_ignored = false,   -- Show git-ignored files
+        -- Show dotfiles
+        dotfiles = false,
+        -- Show git-ignored files
+        git_ignored = false,
       },
       renderer = {
-        group_empty = false,   -- Do not group empty folders into one line
+        -- Do not group empty folders into one line
+        group_empty = false,
       },
       view = {
-        adaptive_size = true,  -- Auto-resize tree width
+        -- Auto-resize tree width
+        adaptive_size = true,
       },
       git = {
         enable = true,
-        ignore = false,        -- Do not hide git-ignored files
+        -- Do not hide git-ignored files
+        ignore = false,
       },
     },
-  }
-
+  },
 }
