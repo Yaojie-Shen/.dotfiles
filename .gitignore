@@ -167,3 +167,5 @@ persistent/
 
 # Nvim lazy
 lazy-lock.json
+
+.vscode

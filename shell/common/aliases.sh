@@ -7,3 +7,6 @@ alias pipv="pip3 --version"
 alias reactivate="conda deactivate && conda activate"
 alias activate="conda activate"
 alias deactivate="conda deactivate"
+
+# SSH Config Manager
+alias sshm="ssh_manager"

@@ -1,0 +1,632 @@
+# !/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# @Time    : 11/19/25
+# @Author  : Yaojie Shen
+# @Project : dotfiles
+# @File    : ssh_manager.py
+
+"""
+SSH Config Manager
+A tool to manage SSH configurations with add/remove/update/list functionality. Only support configuring username, hostname, and port.
+Each managed item is wrapped with start/end markers for easy identification.
+"""
+
+import argparse
+import os
+import re
+import sys
+from typing import List, Dict, Optional
+
+START_MARKER = "# >>> Managed by ssh_manager >>>"
+END_MARKER = "# <<< Managed by ssh_manager <<<"
+
+
+# Color codes for terminal output
+class Colors:
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    RESET = '\033[0m'
+
+
+def color_print(text, color=Colors.RESET, bold=False):
+    """Print colored text to terminal."""
+    if bold:
+        print(f"{Colors.BOLD}{color}{text}{Colors.RESET}")
+    else:
+        print(f"{color}{text}{Colors.RESET}")
+
+
+def get_input(prompt, default=None, color=Colors.CYAN):
+    """Get user input with colored prompt."""
+    if default:
+        prompt_text = f"{color}{prompt} [{default}]: {Colors.RESET}"
+    else:
+        prompt_text = f"{color}{prompt}: {Colors.RESET}"
+
+    try:
+        user_input = input(prompt_text).strip()
+        return user_input if user_input else default
+    except (EOFError, KeyboardInterrupt):
+        # Handle Ctrl+C during input
+        print()  # New line after ^C
+        raise KeyboardInterrupt
+
+
+def confirm_action(prompt):
+    """Ask for user confirmation."""
+    while True:
+        try:
+            response = get_input(f"{prompt} (y/n)", color=Colors.YELLOW).lower()
+            if response in ['y', 'yes']:
+                return True
+            elif response in ['n', 'no']:
+                return False
+            else:
+                color_print("Please answer 'y' or 'n'.", Colors.YELLOW)
+        except (EOFError, KeyboardInterrupt):
+            # Treat EOF/KeyboardInterrupt as 'no'
+            return False
+
+
+class SSHConfigManager:
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            # Try to determine the correct home directory
+            home = os.path.expanduser("~")
+            if os.path.exists(f"/home/{os.getenv('USER')}/.ssh"):
+                config_path = f"/home/{os.getenv('USER')}/.ssh/config"
+            else:
+                config_path = os.path.join(home, ".ssh", "config")
+        else:
+            config_path = os.path.expanduser(config_path)
+
+        self.config_path = config_path
+        self.ensure_config_exists()
+
+    def ensure_config_exists(self):
+        """Ensure the SSH config file and directory exist."""
+        ssh_dir = os.path.dirname(self.config_path)
+        if not os.path.exists(ssh_dir):
+            os.makedirs(ssh_dir, mode=0o700)
+        if not os.path.exists(self.config_path):
+            with open(self.config_path, 'w') as f:
+                pass
+            os.chmod(self.config_path, 0o600)
+
+    def read_config(self) -> str:
+        """Read the entire SSH config file."""
+        try:
+            with open(self.config_path, 'r') as f:
+                return f.read()
+        except FileNotFoundError:
+            return ""
+
+    def write_config(self, content: str):
+        """Write content to the SSH config file."""
+        with open(self.config_path, 'w') as f:
+            f.write(content)
+
+    def parse_managed_configs(self) -> List[Dict[str, str]]:
+        """Parse all managed SSH configurations."""
+        config_content = self.read_config()
+        managed_configs = []
+
+        # Split by lines and process line by line
+        lines = config_content.split('\n')
+        i = 0
+
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # Look for start marker
+            if line.startswith(START_MARKER):
+                # Extract name from start marker
+                name = line[len(START_MARKER):].strip()
+
+                # Parse the config block until end marker
+                config = {'name': name}
+                i += 1
+
+                while i < len(lines) and not lines[i].strip().startswith(END_MARKER):
+                    line = lines[i].strip()
+                    if line.startswith('Host '):
+                        config['host'] = line.split(' ', 1)[1]
+                    elif line.startswith('HostName '):
+                        config['hostname'] = line.split(' ', 1)[1]
+                    elif line.startswith('User '):
+                        config['user'] = line.split(' ', 1)[1]
+                    elif line.startswith('Port '):
+                        config['port'] = line.split(' ', 1)[1]
+                    i += 1
+
+                managed_configs.append(config)
+
+            i += 1
+
+        return managed_configs
+
+    def parse_unmanaged_configs(self) -> List[Dict[str, str]]:
+        """Parse all unmanaged SSH configurations."""
+        config_content = self.read_config()
+        unmanaged_configs = []
+        managed_names = {config['name'] for config in self.parse_managed_configs()}
+
+        # Split by lines and process line by line
+        lines = config_content.split('\n')
+        i = 0
+
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # Skip empty lines, comments, and managed sections
+            if not line or line.startswith('#') or line.startswith(START_MARKER):
+                if line.startswith(START_MARKER):
+                    # Skip managed section entirely
+                    while i < len(lines) and not lines[i].strip().startswith(END_MARKER):
+                        i += 1
+                i += 1
+                continue
+
+            # Look for Host entries
+            if line.startswith('Host '):
+                host_name = line.split(' ', 1)[1]
+
+                # Skip if this is a managed config or wildcard
+                if host_name in managed_names or '*' in host_name:
+                    i += 1
+                    continue
+
+                # Parse the config block until next Host or end of file
+                config = {'name': host_name, 'host': host_name}
+                i += 1
+
+                while i < len(lines):
+                    line = lines[i].strip()
+
+                    # Stop at next Host entry, comment, or managed section
+                    if (line.startswith('Host ') or
+                            line.startswith('#') or
+                            line.startswith(START_MARKER)):
+                        break
+
+                    if line.startswith('HostName '):
+                        config['hostname'] = line.split(' ', 1)[1]
+                    elif line.startswith('User '):
+                        config['user'] = line.split(' ', 1)[1]
+                    elif line.startswith('Port '):
+                        config['port'] = line.split(' ', 1)[1]
+
+                    i += 1
+
+                # Only add if we found at least hostname or user
+                if 'hostname' in config or 'user' in config:
+                    unmanaged_configs.append(config)
+
+                continue
+
+            i += 1
+
+        return unmanaged_configs
+
+    def convert_to_managed(self, name: str):
+        """Convert an unmanaged SSH configuration to managed."""
+        # First check if it's already managed
+        managed_configs = self.parse_managed_configs()
+        if any(config['name'] == name for config in managed_configs):
+            raise ValueError(f"Configuration '{name}' is already managed")
+
+        # Find the unmanaged config
+        unmanaged_configs = self.parse_unmanaged_configs()
+        target_config = None
+        for config in unmanaged_configs:
+            if config['name'] == name:
+                target_config = config
+                break
+
+        if not target_config:
+            raise ValueError(f"Unmanaged configuration '{name}' not found")
+
+        # Extract the configuration details
+        user = target_config.get('user', 'root')  # Default to root if not specified
+        hostname = target_config.get('hostname', name)  # Use name as fallback
+        port = int(target_config.get('port', 22))  # Default to 22
+
+        # Remove the unmanaged config from the file
+        config_content = self.read_config()
+
+        # Find and remove the unmanaged Host section
+        lines = config_content.split('\n')
+        new_lines = []
+        i = 0
+        found = False
+
+        while i < len(lines):
+            line = lines[i].strip()
+
+            if line.startswith(f'Host {name}'):
+                # Found the target Host, skip this section
+                found = True
+                i += 1
+                while i < len(lines):
+                    line = lines[i].strip()
+                    # Stop at next Host, comment, or managed section
+                    if (line.startswith('Host ') or
+                            line.startswith('#') or
+                            line.startswith(START_MARKER)):
+                        break
+                    i += 1
+                continue
+
+            new_lines.append(lines[i])
+            i += 1
+
+        if not found:
+            raise ValueError(f"Could not find unmanaged configuration for '{name}'")
+
+        # Write back the modified content
+        self.write_config('\n'.join(new_lines))
+
+        # Add as managed config
+        self.add_config(name, user, hostname, port)
+
+        color_print(f"✓ Converted unmanaged configuration '{name}' to managed", Colors.GREEN, bold=True)
+
+    def list_unmanaged_configs(self):
+        """List all unmanaged SSH configurations."""
+        configs = self.parse_unmanaged_configs()
+
+        if not configs:
+            color_print("No unmanaged SSH configurations found.", Colors.YELLOW)
+            return
+
+        color_print("Unmanaged SSH Configurations:", Colors.CYAN, bold=True)
+        color_print("-" * 50, Colors.BLUE)
+        for config in configs:
+            name = config['name']
+            user = config.get('user', 'N/A')
+            hostname = config.get('hostname', 'N/A')
+            port = config.get('port', '22')
+            color_print(f"Name: {name}", Colors.WHITE, bold=True)
+            color_print(f"  User: {user}", Colors.GREEN)
+            color_print(f"  Host: {hostname}", Colors.GREEN)
+            color_print(f"  Port: {port}", Colors.GREEN)
+            print()
+
+    def add_config(self, name: str = None, user: str = None, hostname: str = None, port: int = None,
+                   interactive: bool = False):
+        """Add a new SSH configuration. Supports both direct and interactive modes."""
+
+        if interactive:
+            # Interactive mode
+            color_print("\n⚡ SSH Configuration Setup", Colors.CYAN, bold=True)
+            color_print("=" * 40, Colors.BLUE)
+
+            if not name:
+                name = get_input("Configuration name")
+                if not name:
+                    raise ValueError("Configuration name is required")
+
+            # Early duplicate check - immediately after getting name
+            # Check if name already exists in managed configs
+            existing_configs = self.parse_managed_configs()
+            if any(config['name'] == name for config in existing_configs):
+                color_print(f"✗ Error: Managed configuration '{name}' already exists", Colors.RED, bold=True)
+                raise ValueError(f"Configuration '{name}' already exists")
+
+            # Check if there's an unmanaged config with the same Host name
+            config_content = self.read_config()
+            lines = config_content.split('\n')
+
+            for line in lines:
+                line = line.strip()
+                if line.startswith(f'Host {name}'):
+                    # Found an unmanaged config with same name - this is an error
+                    color_print(f"✗ Error: Found existing SSH configuration for '{name}' in config file.", Colors.RED,
+                                bold=True)
+                    color_print(f"  This script will not overwrite the existing configuration.", Colors.RED)
+                    raise ValueError(f"Configuration '{name}' already exists in SSH config")
+
+            # Continue with rest of interactive input
+            if not user:
+                user = get_input("Username")
+                if not user:
+                    raise ValueError("Username is required")
+
+            if not hostname:
+                hostname = get_input("Hostname or IP address")
+                if not hostname:
+                    raise ValueError("Hostname is required")
+
+            if not port:
+                port_str = get_input("Port", default="22")
+                try:
+                    port = int(port_str) if port_str else 22
+                except ValueError:
+                    raise ValueError("Port must be a valid number")
+
+            # Show summary and ask for confirmation
+            color_print(f"\n⛭ Configuration Summary:", Colors.CYAN, bold=True)
+            color_print(f"  Name: {name}", Colors.WHITE)
+            color_print(f"  User: {user}", Colors.WHITE)
+            color_print(f"  Host: {hostname}", Colors.WHITE)
+            color_print(f"  Port: {port}", Colors.WHITE)
+
+            if not confirm_action("\nDo you want to add this configuration?"):
+                color_print("✗ Configuration cancelled.", Colors.YELLOW)
+                return
+
+        # Validate required parameters (for both modes)
+        if not name or not user or not hostname:
+            raise ValueError("Name, user, and hostname are required")
+
+        if port is None:
+            port = 22
+
+        # Check if name already exists in managed configs
+        existing_configs = self.parse_managed_configs()
+        if any(config['name'] == name for config in existing_configs):
+            raise ValueError(f"Configuration '{name}' already exists")
+
+        # Check if there's an unmanaged config with the same Host name
+        config_content = self.read_config()
+        lines = config_content.split('\n')
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith(f'Host {name}'):
+                # Found an unmanaged config with same name - this is an error
+                color_print(f"✗ Error: Found existing SSH configuration for '{name}' in config file.", Colors.RED,
+                            bold=True)
+                color_print(f"  This script will not overwrite the existing configuration.", Colors.RED)
+                raise ValueError(f"Configuration '{name}' already exists in SSH config")
+
+        # Create the new config block
+        new_config = f"""{START_MARKER} {name}
+Host {name}
+    HostName {hostname}
+    User {user}
+    Port {port}
+{END_MARKER}
+"""
+
+        # Add to the end of the file
+        if config_content and not config_content.endswith('\n'):
+            config_content += '\n'
+        config_content += new_config
+
+        self.write_config(config_content)
+        color_print(f"✓ Added SSH configuration '{name}' for {user}@{hostname}:{port}", Colors.GREEN, bold=True)
+
+    def remove_config(self, name: str):
+        """Remove an SSH configuration by name."""
+        config_content = self.read_config()
+
+        # Find and remove the managed section
+        pattern = rf'{START_MARKER}\s*{re.escape(name)}\s*\n.*?\n{END_MARKER}\n?'
+        new_content = re.sub(pattern, '', config_content, flags=re.DOTALL)
+
+        if new_content == config_content:
+            raise ValueError(f"Configuration '{name}' not found")
+
+        self.write_config(new_content)
+        color_print(f"✓ Removed SSH configuration '{name}'", Colors.GREEN, bold=True)
+
+    def update_config(self, name: str, user: Optional[str] = None,
+                      hostname: Optional[str] = None, port: Optional[int] = None,
+                      interactive: bool = False):
+        """Update an existing SSH configuration. Supports both direct and interactive modes."""
+        configs = self.parse_managed_configs()
+        config_to_update = None
+
+        for config in configs:
+            if config['name'] == name:
+                config_to_update = config
+                break
+
+        if not config_to_update:
+            raise ValueError(f"Configuration '{name}' not found")
+
+        if interactive:
+            # Interactive mode
+            color_print(f"\n⚡ Updating SSH Configuration: {name}", Colors.CYAN, bold=True)
+            color_print("=" * 50, Colors.BLUE)
+
+            # Show current configuration
+            color_print(f"\n⛭ Current Configuration:", Colors.YELLOW, bold=True)
+            color_print(f"  User: {config_to_update.get('user', 'N/A')}", Colors.WHITE)
+            color_print(f"  Host: {config_to_update.get('hostname', 'N/A')}", Colors.WHITE)
+            color_print(f"  Port: {config_to_update.get('port', '22')}", Colors.WHITE)
+
+            color_print(f"\n✎ Enter new values (press Enter to keep current):", Colors.CYAN, bold=True)
+
+            # Get new values with current values as defaults
+            new_user = get_input("Username", default=config_to_update.get('user', ''))
+            new_hostname = get_input("Hostname or IP address", default=config_to_update.get('hostname', ''))
+            new_port_str = get_input("Port", default=config_to_update.get('port', '22'))
+
+            # Parse port
+            try:
+                new_port = int(new_port_str) if new_port_str else int(config_to_update.get('port', 22))
+            except ValueError:
+                raise ValueError("Port must be a valid number")
+
+            # Update fields if user provided new values (empty string means keep current)
+            if new_user is not None:
+                user = new_user if new_user else config_to_update.get('user', 'root')
+            if new_hostname is not None:
+                hostname = new_hostname if new_hostname else config_to_update.get('hostname', name)
+            if new_port_str is not None:
+                port = new_port if new_port_str else int(config_to_update.get('port', 22))
+
+            # Show summary and ask for confirmation
+            color_print(f"\n⛭ Updated Configuration Summary:", Colors.CYAN, bold=True)
+            color_print(f"  Name: {name}", Colors.WHITE)
+            color_print(f"  User: {user}", Colors.WHITE)
+            color_print(f"  Host: {hostname}", Colors.WHITE)
+            color_print(f"  Port: {port}", Colors.WHITE)
+
+            if not confirm_action("\nDo you want to update this configuration?"):
+                color_print("✗ Configuration update cancelled.", Colors.YELLOW)
+                return
+
+        # Show success message for non-interactive mode
+        if not interactive:
+            color_print(f"✓ Updated SSH configuration '{name}'", Colors.GREEN, bold=True)
+
+        # Update fields if provided (for both modes)
+        if user:
+            config_to_update['user'] = user
+        if hostname:
+            config_to_update['hostname'] = hostname
+        if port:
+            config_to_update['port'] = str(port)
+
+        # Remove old config and add updated one
+        self.remove_config(name)
+        self.add_config(name, config_to_update['user'],
+                        config_to_update['hostname'],
+                        int(config_to_update.get('port', 22)))
+
+    def list_configs(self):
+        """List all managed SSH configurations."""
+        configs = self.parse_managed_configs()
+
+        if not configs:
+            color_print("No managed SSH configurations found.", Colors.YELLOW)
+            return
+
+        color_print("Managed SSH Configurations:", Colors.CYAN, bold=True)
+        color_print("-" * 50, Colors.BLUE)
+        for config in configs:
+            name = config['name']
+            user = config.get('user', 'N/A')
+            hostname = config.get('hostname', 'N/A')
+            port = config.get('port', '22')
+            color_print(f"Name: {name}", Colors.WHITE, bold=True)
+            color_print(f"  User: {user}", Colors.GREEN)
+            color_print(f"  Host: {hostname}", Colors.GREEN)
+            color_print(f"  Port: {port}", Colors.GREEN)
+            print()
+
+
+def main():
+    try:
+        parser = argparse.ArgumentParser(description="SSH Config Manager")
+        subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+        # Add command
+        add_parser = subparsers.add_parser('add', help='Add a new SSH configuration')
+        add_parser.add_argument('name', nargs='?', help='Configuration name (optional for interactive mode)')
+        add_parser.add_argument('user', nargs='?', help='Username (optional for interactive mode)')
+        add_parser.add_argument('hostname', nargs='?', help='Hostname or IP address (optional for interactive mode)')
+        add_parser.add_argument('--port', type=int, help='Port number (default: 22, optional for interactive mode)')
+
+        # Remove command
+        remove_parser = subparsers.add_parser('remove', help='Remove an SSH configuration')
+        remove_parser.add_argument('name', help='Configuration name to remove')
+
+        # Update command
+        update_parser = subparsers.add_parser('update', help='Update an existing SSH configuration')
+        update_parser.add_argument('name', nargs='?',
+                                   help='Configuration name to update (optional for interactive mode)')
+        update_parser.add_argument('--user', help='New username (optional for interactive mode)')
+        update_parser.add_argument('--hostname', help='New hostname or IP address (optional for interactive mode)')
+        update_parser.add_argument('--port', type=int, help='New port number (optional for interactive mode)')
+
+        # List command
+        list_parser = subparsers.add_parser('list', help='List all managed SSH configurations')
+
+        # List unmanaged command
+        list_unmanaged_parser = subparsers.add_parser('list-unmanaged', help='List all unmanaged SSH configurations')
+
+        # Convert to managed command
+        convert_parser = subparsers.add_parser('convert', help='Convert unmanaged SSH configuration to managed')
+        convert_parser.add_argument('name', help='Configuration name to convert')
+
+        args = parser.parse_args()
+
+        # If no command specified, default to list
+        if not args.command:
+            args.command = 'list'
+
+        manager = SSHConfigManager()
+
+        try:
+            if args.command == 'add':
+                # Check if we're in interactive mode (any required argument is missing)
+                interactive = not all([args.name, args.user, args.hostname])
+                manager.add_config(
+                    name=args.name,
+                    user=args.user,
+                    hostname=args.hostname,
+                    port=args.port,
+                    interactive=interactive
+                )
+            elif args.command == 'remove':
+                manager.remove_config(args.name)
+            elif args.command == 'update':
+                # Check if we're in interactive mode (no arguments provided for update fields)
+                interactive = not any([args.user, args.hostname, args.port])
+
+                # If no name provided and interactive mode, we need to get the name first
+                if interactive and not args.name:
+                    # Show available configs for selection
+                    configs = manager.parse_managed_configs()
+                    if not configs:
+                        color_print("No managed configurations available to update.", Colors.YELLOW)
+                        return
+
+                    color_print("\nAvailable managed configurations:", Colors.CYAN, bold=True)
+                    for i, config in enumerate(configs, 1):
+                        color_print(
+                            f"{i}. {config['name']} ({config.get('user', 'N/A')}@{config.get('hostname', 'N/A')}:{config.get('port', '22')})",
+                            Colors.WHITE)
+
+                    while True:
+                        choice = get_input("\nSelect configuration number to update")
+                        if not choice:  # Empty input, treat as cancellation
+                            color_print("✗ Update cancelled.", Colors.YELLOW)
+                            return
+                        try:
+                            choice_num = int(choice)
+                            if 1 <= choice_num <= len(configs):
+                                args.name = configs[choice_num - 1]['name']
+                                break
+                            else:
+                                color_print(f"Please enter a number between 1 and {len(configs)}", Colors.YELLOW)
+                        except ValueError:
+                            color_print("Please enter a valid number", Colors.YELLOW)
+
+                manager.update_config(
+                    name=args.name,
+                    user=args.user,
+                    hostname=args.hostname,
+                    port=args.port,
+                    interactive=interactive
+                )
+            elif args.command == 'list':
+                manager.list_configs()
+            elif args.command == 'list-unmanaged':
+                manager.list_unmanaged_configs()
+            elif args.command == 'convert':
+                manager.convert_to_managed(args.name)
+        except ValueError as e:
+            color_print(f"✗ Error: {e}", Colors.RED, bold=True)
+            sys.exit(1)
+        except Exception as e:
+            color_print(f"✗ Unexpected error: {e}", Colors.RED, bold=True)
+            sys.exit(1)
+
+    except KeyboardInterrupt:
+        color_print("\n⚠ SSH Config Manager interrupted. Exiting gracefully...", Colors.YELLOW, bold=True)
+        sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()
