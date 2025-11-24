@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+import argparse
+import fnmatch
+import os
+import random
+import re
+import shutil
+import time
+from datetime import datetime
+from pathlib import Path
+
+
+def log(msg):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Randomly copy N files from src to dst with optional filtering. Useful for sampling from large datasets."
+    )
+    parser.add_argument("src")
+    parser.add_argument("dst")
+    parser.add_argument("-n", type=int, required=True)
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--pattern", type=str, default="*", help="Glob pattern filter. Default: *")
+    parser.add_argument("--regex", type=str, default=None,
+                        help="Regex pattern filter. Higher priority than glob pattern. If provided, overrides glob pattern.")
+    parser.add_argument("--dry-run", action="store_true")
+
+    args = parser.parse_args()
+
+    rng = random.Random(args.seed)
+
+    src = Path(args.src)
+    dst = Path(args.dst)
+
+    if not src.exists():
+        raise RuntimeError(f"Source folder not found: {src}")
+    if not src.is_dir():
+        raise RuntimeError(f"Source exists but is not folder: {src}")
+
+    # --- Check/create dst ---
+    if not dst.exists():
+        log(f"Dst does not exist, creating: {dst}")
+        if not args.dry_run:
+            dst.mkdir(parents=True)
+    elif not dst.is_dir():
+        raise RuntimeError(f"Destination exists but is not folder: {dst}")
+
+    # --- Step 1: Fast listdir ---
+    log("Listing directory...")
+    s_time = time.time()
+    names = os.listdir(src)
+    total = len(names)
+    log(f"Found {total} entries. (took {time.time() - s_time:.4f}s)")
+
+    if total == 0:
+        raise RuntimeError("Empty folder.")
+
+    log("Start random selection...")
+
+    selected = []
+    target_n = args.n
+
+    if args.regex:
+        regex = re.compile(args.regex)
+
+    # while we still need files and names non-empty
+    s_time = time.time()
+    while names and len(selected) < target_n:
+        idx = rng.randrange(len(names))
+
+        # Use O(1) pop via swap with last technique
+        names[idx], names[-1] = names[-1], names[idx]
+        name = names.pop()
+
+        filepath = src / name
+
+        # Check type only when needed for faster filtering
+        if not filepath.is_file():
+            continue
+
+        # Check glob filter only when needed
+        if args.regex:
+            if not regex.match(name):
+                continue
+        else:
+            if not fnmatch.fnmatch(name, args.pattern):
+                continue
+
+        selected.append(name)
+
+    log(f"Selected {len(selected)} files (requested {target_n}, took {time.time() - s_time:.4f}s).")
+    log("Start copying...")
+
+    print("----------")
+    s_time = time.time()
+    for name in selected:
+        src_file = src / name
+        dst_file = dst / name
+
+        log(f"COPY {src_file} -> {dst_file}")
+        if not args.dry_run:
+            shutil.copy2(src_file, dst_file)
+    print("----------")
+
+    if args.dry_run:
+        log("DRY RUN, NOTHING COPIED.")
+    else:
+        log(f"DONE (took {time.time() - s_time:.4f}s)")
+
+
+if __name__ == "__main__":
+    main()
