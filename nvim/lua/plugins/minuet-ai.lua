@@ -1,11 +1,11 @@
 return {
   {
-    'milanglacier/minuet-ai.nvim',
-    lazy = false,
+    "milanglacier/minuet-ai.nvim",
+    event = "VeryLazy",
     config = function()
-      require('minuet').setup {
-        provider = 'openai_fim_compatible',
-        n_completions = 1,         -- recommend for local model for resource saving
+      require("minuet").setup {
+        provider = "openai_fim_compatible",
+        n_completions = 1, -- recommend for local model for resource saving
         -- I recommend beginning with a small context window size and incrementally
         -- expanding it, depending on your local computing power. A context window
         -- of 512, serves as an good starting point to estimate your computing
@@ -20,10 +20,10 @@ return {
           openai_fim_compatible = {
             -- For Windows users, TERM may not be present in environment variables.
             -- Consider using APPDATA instead.
-            api_key = 'TERM',
-            name = 'Ollama',
-            end_point = 'http://localhost:11434/v1/completions',
-            model = 'deepseek-coder-v2',
+            api_key = "TERM",
+            name = "Ollama",
+            end_point = "http://localhost:11434/v1/completions",
+            model = "deepseek-coder-v2",
             stream = true,
             optional = {
               max_tokens = 128,
@@ -32,17 +32,21 @@ return {
             },
           },
         },
-        -- Use neovim built-in completion. According to the readme of minute, this require neovim version 0.11 or higher.
-        lsp = {
-          enabled_ft = { 'toml', 'lua', 'cpp', 'python' },
-          -- Enables automatic completion triggering using `vim.lsp.completion.enable`
-          enabled_auto_trigger_ft = {},
+        -- -- Use neovim built-in completion. According to the readme of minute, this require neovim version 0.11 or higher.
+        -- lsp = {
+        --   enabled_ft = { "*" },
+        --   -- Enables automatic completion triggering using `vim.lsp.completion.enable`
+        --   enabled_auto_trigger_ft = { },
+        -- },
+        virtualtext = {
+          auto_trigger_ft = { "*" },
+          keymap = {},
         },
-        request_timeout = 3,
+        request_timeout = 1,
       }
     end,
   },
-  { 'nvim-lua/plenary.nvim' },
+  { "nvim-lua/plenary.nvim" },
   -- optional, if you are using virtual-text frontend, nvim-cmp is not.
   -- required.
   -- { 'hrsh7th/nvim-cmp' },
