@@ -11,7 +11,7 @@ return {
         -- of 512, serves as an good starting point to estimate your computing
         -- power. Once you have a reliable estimate of your local computing power,
         -- you should adjust the context window to a larger value.
-        context_window = 128,
+        context_window = 512,
         provider_options = {
           -- Run the follwing command to start the server:
           --   devbox setup ollama
@@ -28,7 +28,7 @@ return {
             optional = {
               max_tokens = 128,
               top_p = 0.9,
-              stop = { '\n' } -- NOTE(yaojie): Only complete for one line.
+              -- stop = { '\n' } -- NOTE(yaojie): Only complete for one line.
             },
           },
         },
@@ -45,10 +45,49 @@ return {
         request_timeout = 1,
       }
     end,
+    keys = {
+      -- Keymap for virtual text completion, map <Tab> to accept suggestion, fallback to insert a <Tab> if there is no suggestion
+      -- Credit and more details: https://github.com/milanglacier/minuet-ai.nvim/issues/113
+      -- Note: Do not set keymap for accept in minuet-ai's configuration of virtualtext keymap.
+      {
+        "<tab>",
+        function()
+          local mv = require "minuet.virtualtext"
+          if mv.action.is_visible() then
+            vim.defer_fn(require("minuet.virtualtext").action.accept, 30)
+            return
+          -- respect the default behavior of snippet jumping for tab
+          elseif vim.snippet.active { direction = 1 } then
+            return string.format("<Cmd>lua vim.snippet.jump(%d)<CR>", 1)
+          else
+            return "<tab>"
+          end
+        end,
+        mode = "i",
+        desc = "Accept minuet completion if available, jump snippet if active, otherwise insert tab.",
+        expr = true,
+        silent = true,
+      },
+      {
+        "<Esc>",
+        function()
+          local mv = require "minuet.virtualtext"
+          if mv.action.is_visible() then
+            vim.defer_fn(require("minuet.virtualtext").action.dismiss, 10)
+            return
+          else
+            return "<esc>"
+          end
+        end,
+        mode = "i",
+        desc = "Dismiss minuet completion if available, otherwise <ESC>.",
+        expr = true,
+        silent = true,
+      },
+    },
   },
   { "nvim-lua/plenary.nvim" },
-  -- optional, if you are using virtual-text frontend, nvim-cmp is not.
-  -- required.
+  -- optional, if you are using virtual-text frontend, nvim-cmp is not required.
   -- { 'hrsh7th/nvim-cmp' },
   -- optional, if you are using virtual-text frontend, blink is not required.
   -- { 'Saghen/blink.cmp' },
