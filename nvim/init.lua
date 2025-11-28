@@ -39,3 +39,6 @@ end)
 vim.o.shell = "/usr/bin/zsh"
 -- use relative line number by default
 vim.opt.relativenumber = true
+
+vim.opt.fillchars:append { diff = "╱" }
+
