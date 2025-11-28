@@ -7,8 +7,8 @@ vim.lsp.config("pyright", {
   settings = {
     python = {
       analysis = {
-        diagnosticMode = "workspace",
-        typeCheckingMode = "basic",
+        diagnosticMode = "openFilesOnly",
+        typeCheckingMode = "recomrecommended",
       },
     },
   },
