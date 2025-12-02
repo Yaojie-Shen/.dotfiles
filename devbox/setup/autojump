@@ -27,7 +27,7 @@ inserted_start="# >>> autojump initialize >>>"
 inserted_end="# <<< autojump initialize <<<"
 
 install_autojump() {
-  git clone https://github.com/wting/autojump.git
+  git clone https://github.com/wting/autojump.git || return 1
   cd autojump || return 1
   ./install.py -f || return 1
   cd .. || return 1
