@@ -42,7 +42,7 @@ return {
           auto_trigger_ft = { "*" },
           keymap = {},
         },
-        request_timeout = 3,
+        request_timeout = 10,
       }
     end,
     keys = {
