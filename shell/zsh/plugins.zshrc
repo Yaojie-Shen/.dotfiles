@@ -2,6 +2,9 @@
 if [ -f /opt/homebrew/opt/zplug/init.zsh ]; then
     # Compatible with macOS (Homebrew on Apple Silicon)
     source /opt/homebrew/opt/zplug/init.zsh
+elif [ -f /usr/share/zplug/init.zsh ]; then
+    # Compatible with Linux install with package manager
+    source /usr/share/zplug/init.zsh
 elif [ -f ~/.zplug/init.zsh ]; then
     # Default installation path
     source ~/.zplug/init.zsh
@@ -14,7 +17,11 @@ else
    brew install zplug
    # init.zsh will be at: /opt/homebrew/opt/zplug/init.zsh
 
-2) Any system (official installer):
+2) Linux:
+   apt install zplug
+   # init.zsh will be at: /usr/share/zplug/init.zsh
+
+3) Any system (official installer):
    curl -sL --proto-redir -all,https https://raw.githubusercontent.com/zplug/installer/master/installer.zsh | zsh
    # init.zsh will be at: ~/.zplug/init.zsh
 "
