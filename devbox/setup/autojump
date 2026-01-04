@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
+# trap 'error "Command failed at line $LINENO"' ERR # Debug
+
 RED='\033[0;31m'
 GREEN='\033[1;32m'
 BLUE='\033[1;34m'
@@ -27,26 +30,63 @@ inserted_start="# >>> autojump initialize >>>"
 inserted_end="# <<< autojump initialize <<<"
 
 install_autojump() {
-  git clone https://github.com/wting/autojump.git || return 1
-  cd autojump || return 1
-  ./install.py -f || return 1
-  cd .. || return 1
+  git clone https://github.com/wting/autojump.git
+  cd autojump
+  ./install.py -f
+  cd ..
   rm -rf autojump
+}
+
+detect_sed() {
+  SED="sed"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    if command -v gsed >/dev/null 2>&1; then
+      SED="gsed"
+    else
+      warning "gsed not found on MacOS."
+
+      read -r -p "Install gsed via brew? [Y/n]: " answer || answer="n"
+      answer=${answer:-Y}
+
+      if [[ "$answer" =~ ^[Yy]$ ]]; then
+        if ! command -v brew >/dev/null 2>&1; then
+          error "brew not found. Please install Homebrew first."
+          return 1
+        fi
+
+        info "Installing gnu-sed via brew..."
+        brew install gnu-sed
+        SED="gsed"
+      else
+        error "gsed is required on Linux for this script."
+        return 1
+      fi
+    fi
+  else
+    SED="sed"
+  fi
+
+  export SED
 }
 
 configure_autojump() {
   local content='[[ -s "${HOME}/.autojump/etc/profile.d/autojump.sh" ]] && source "${HOME}/.autojump/etc/profile.d/autojump.sh"'
   local rc_file=$1
 
+
   # Check if the marker already exists
   if grep -q "$inserted_start" "$rc_file"; then
+    detect_sed
     # If the marker exists, replace the content between markers
-    sed -i --follow-symlinks "/$inserted_start/,/$inserted_end/c\\$inserted_start\n$content\n$inserted_end" "$rc_file" || return 1
+    "$SED" -i --follow-symlinks \
+      "/$inserted_start/,/$inserted_end/c\\$inserted_start\n$content\n$inserted_end" \
+      "$rc_file"
   else
     # If no marker exists, append the content with markers
     {
       echo -e "\n$inserted_start\n$content\n$inserted_end\n"
-    } >>"$rc_file" || return 1
+    } >>"$rc_file"
   fi
 
   return
@@ -57,11 +97,11 @@ if [ -d "${HOME}/.autojump" ]; then
   warning "${HOME}/.autojump already exists, skipping installation."
 else
   info "Installing autojump from source to ${HOME}/.autojump"
-  install_autojump || exit 1
+  install_autojump
 fi
 
 info "Configuring autojump..."
-configure_autojump "${HOME}/.zshrc" || exit 1
-configure_autojump "${HOME}/.bashrc" || exit 1
+configure_autojump "${HOME}/.zshrc"
+configure_autojump "${HOME}/.bashrc"
 
-printf " All processes are successfully completed \U1F389\n"
+printf " All processes are successfully completed 🎉\n"
