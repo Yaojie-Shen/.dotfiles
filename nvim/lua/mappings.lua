@@ -11,3 +11,6 @@ map("i", "jk", "<ESC>")
 map("n", "<C-s>", ":w<CR>", { noremap = true, silent = true })
 map("i", "<C-s>", "<Esc>:w<CR>a", { noremap = true, silent = true })
 
+-- Quickly exit terminal mode with ESC
+map("t", "<Esc>", "<C-\\><C-n>", { noremap = true, silent = true, desc = "Exit terminal mode" })
+

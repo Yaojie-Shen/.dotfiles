@@ -36,9 +36,11 @@ vim.schedule(function()
   require "mappings"
 end)
 
-vim.o.shell = "/usr/bin/zsh"
+vim.o.shell = "zsh"
 -- use relative line number by default
 vim.opt.relativenumber = true
 
 vim.opt.fillchars:append { diff = "╱" }
 
+-- Use vertical bar cursor in terminal-insert mode
+vim.opt.guicursor:append("t:ver25")
