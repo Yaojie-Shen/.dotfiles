@@ -92,6 +92,7 @@ return {
     },
   },
 
+  -- Configure DAP for specific language
   {
     "mfussenegger/nvim-dap-python",
     lazy = { "VeryLazy" },
