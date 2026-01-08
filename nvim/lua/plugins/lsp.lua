@@ -5,7 +5,8 @@ return {
   -- Automate LSP installation
   {
     "mason-org/mason-lspconfig.nvim",
-    event = { "VeryLazy", "BufReadPre", "BufNewFile" },
+    -- LSP should be configured and enabled before startup to ensure auto-session restore works correctly
+    lazy = false,
     opts = {
       ensure_installed = servers,
       automatic_enable = true,
@@ -18,8 +19,6 @@ return {
 
   {
     "neovim/nvim-lspconfig",
-    -- LSP should be configured and enabled before startup to ensure auto-session restore works correctly
-    lazy = false,
     config = function()
       -- Configure LSP
       -- read :h vim.lsp.config for changing options of lsp servers
