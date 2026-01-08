@@ -1,19 +1,92 @@
 #!/usr/bin/env bash
 
-JLESS_BIN=${1:-"https://github.com/PaulJuliusMartinez/jless/releases/download/v0.9.0/jless-v0.9.0-x86_64-unknown-linux-gnu.zip"}
+set -Eeuo pipefail
 
-# Check if jless is already installed
-if command -v jless &>/dev/null; then
-  printf "\e[31mjless is already installed\e[0m\n"
+JLESS_BIN="https://github.com/PaulJuliusMartinez/jless/releases/download/v0.9.0/jless-v0.9.0-x86_64-unknown-linux-gnu.zip"
+
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options] [URL]
+
+Options:
+  -u, --uninstall    Uninstall jless
+  -h, --help         Show this help message
+  --url <URL>        Specify custom jless download URL
+
+Arguments:
+  URL                Alternative way to specify custom download URL
+EOF
   exit 0
+}
+
+uninstall() {
+  if [ -f /usr/local/bin/jless ]; then
+    info "Uninstalling jless..."
+    sudo rm /usr/local/bin/jless
+    success "jless uninstalled successfully!"
+  else
+    warning "jless is not installed at /usr/local/bin/jless"
+    error "Nothing to remove"
+  fi
+}
+
+install() {
+  # Check if jless is already installed
+  if command -v jless &>/dev/null; then
+    error "jless is already installed"
+    exit 0
+  fi
+
+  local tmp_dir=$(mktemp -d)
+
+  info "Downloading jless from $JLESS_BIN -> $tmp_dir..."
+  curl -L --progress-bar "$JLESS_BIN" -o "$tmp_dir/jless.zip" -f
+  info "Unzipping jless..."
+  unzip -o -q "$tmp_dir/jless.zip" -d "$tmp_dir" jless
+  info "Installing jless to /usr/local/bin..."
+  sudo mv "$tmp_dir/jless" /usr/local/bin/jless
+
+  printf "\n"
+  /usr/local/bin/jless --help
+  printf "\n"
+
+  rm -rf "$tmp_dir"
+
+  success "jless installed successfully!"
+}
+
+# Parse options
+ACTION="install"
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -u | --uninstall)
+    ACTION="uninstall"
+    shift
+    ;;
+  -h | --help)
+    usage
+    ;;
+  --url)
+    JLESS_BIN="$2"
+    shift 2
+    ;;
+  *)
+    if [[ $1 != -* ]]; then
+      JLESS_BIN="$1"
+      shift
+    else
+      error "Unknown option: $1"
+      usage
+    fi
+    ;;
+  esac
+done
+
+if [[ "$ACTION" == "uninstall" ]]; then
+  uninstall
+else
+  install
 fi
-
-curl -L $JLESS_BIN -o /tmp/jless.zip -f || exit 1
-unzip -o /tmp/jless.zip -d /tmp jless || exit 1
-sudo mv /tmp/jless /usr/local/bin/jless || exit 1
-
-rm /tmp/jless.zip
-
-printf "\n"
-/usr/local/bin/jless --help || exit 1
-printf "\n\e[32mjless installed successfully! \e[0m\n"

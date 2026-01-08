@@ -29,18 +29,25 @@ function nvim_configure_linux() {
   fi
 }
 
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
 case "$(uname)" in
 Linux*)
+  info "Installing Neovim for Linux..."
   nvim_install_linux
-
+  
+  info "Configuring PATH for Neovim..."
   # Configure both Bash and Zsh rc files to include Neovim in PATH
   nvim_configure_linux ~/.bashrc
   nvim_configure_linux ~/.zshrc
+  success "Neovim installation and configuration complete."
   ;;
 Darwin*)
+  info "Installing Neovim for MacOS via brew..."
   brew install neovim
+  success "Neovim installation complete."
   ;;
 *)
-  echo "Unsupported OS: $(uname)"
+  error "Unsupported OS: $(uname)"
   ;;
 esac

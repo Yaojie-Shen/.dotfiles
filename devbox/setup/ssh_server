@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
 setup_ssh() {
   local PORT="$1"
 
@@ -8,19 +10,19 @@ setup_ssh() {
   fi
   cd ~/.ssh || return 1
 
+  info "Generating SSH host RSA key..."
   ssh-keygen -t rsa -b 4096 -f ssh_host_rsa_key -N ""
 
   # sshd re-exec requires execution with an absolute path
+  info "Starting sshd on port ${PORT}..."
   /usr/sbin/sshd -h ~/.ssh/ssh_host_rsa_key -p "${PORT}"
 
-  echo "+-----------------+"
-  printf "| SSH port: %5s |\n" "$PORT"
-  echo "+-----------------+"
+  success "SSH server is running on port ${PORT}"
 }
 
 # Ensure port argument is valid
 if ! [[ "$1" =~ ^[0-9]+$ ]] || [ "$1" -lt 1024 ] || [ "$1" -gt 65535 ]; then
-  echo "Invalid port number. Please provide a port number between 1024 and 65535."
+  error "Invalid port number. Please provide a port number between 1024 and 65535."
   exit 1
 fi
 

@@ -38,9 +38,7 @@ function help() {
   echo "Usage: $0 \"<public_key>\""
 }
 
-RED="\033[31m"
-GREEN="\033[32m"
-RESET="\033[0m"
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
 # check $1 is -h/--help
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
@@ -51,11 +49,11 @@ fi
 # Check parameter $1 format and add public key. Raise error if failed.
 is_public_key "$1"
 if [[ ! $? -eq 0 ]]; then
-  echo -e "${RED}${BOLD}[!] ERROR: Invalid public key: \"${1}\"${RESET}"
+  error "Invalid public key: \"${1}\""
   echo ""
   help
   exit 1
 fi
 
 add_public_key "$1"
-echo -e "${GREEN}${BOLD}[*] SUCCESS: Public key added!${RESET}"
+success "Public key added!"
