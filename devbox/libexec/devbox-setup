@@ -4,6 +4,9 @@
 #        devbox setup <script_name> [<args>]
 
 set -e
+
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
 [ -n "$DEVBOX_DEBUG" ] && set -x
 
 setup_dir="${DEVBOX_ROOT}/setup"
@@ -21,12 +24,12 @@ shopt -u dotglob nullglob
 # Provide devbox completions
 case "$1" in
 --complete)
-  echo --list
   printf "%s\n" "${script_names[@]}"
   exit
   ;;
 --list | -l)
-  echo "available setup options:"
+  info "Finding script in: ${setup_dir}"
+  success "Available setup scripts:"
   printf " - %s\n" "${script_names[@]}"
   exit
   ;;
@@ -43,6 +46,6 @@ esac
 if [ -f "${setup_dir}/${SCRIPT_NAME}" ]; then
   "${setup_dir}/${SCRIPT_NAME}" "$@"
 else
-  echo "Setup script not found: ${SCRIPT_NAME}"
-  echo "setup_dir: ${setup_dir}"
+  info "Finding script in: ${setup_dir}"
+  error "Setup script not found: ${SCRIPT_NAME}"
 fi
