@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+
+set -e
+
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
+# --------------------------------
+# Install Linux dependencies
+# --------------------------------
+install_build_deps() {
+  info "Installing pyenv dependencies on Linux..."
+
+  if command -v apt-get >/dev/null 2>&1; then
+    info "Using apt-get"
+    sudo apt-get update
+    sudo apt-get install -y \
+      make build-essential libssl-dev zlib1g-dev \
+      libbz2-dev libreadline-dev libsqlite3-dev curl git \
+      libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
+
+  elif command -v dnf >/dev/null 2>&1; then
+    info "Using dnf"
+    sudo dnf install -y \
+      make gcc patch zlib-devel bzip2 bzip2-devel readline-devel sqlite sqlite-devel openssl-devel tk-devel libffi-devel xz-devel libuuid-devel gdbm-libs libnsl2
+
+  elif command -v yum >/dev/null 2>&1; then
+    info "Using yum"
+    sudo yum install -y \
+      gcc make patch zlib-devel bzip2 bzip2-devel readline-devel sqlite sqlite-devel openssl11-devel tk-devel libffi-devel xz-devel
+
+  elif command -v pacman >/dev/null 2>&1; then
+    info "Using pacman"
+    sudo pacman -Sy --noconfirm \
+      --needed base-devel openssl zlib xz tk zstd
+
+  else
+    warning "No supported package manager found. Please ensure build environment for python are installed before install new Python version."
+
+  fi
+}
+
+# --------------------------------
+# Install Pyenv
+# --------------------------------
+install_pyenv() {
+  OS="$(uname -s)"
+  if [[ "$OS" == "Darwin" ]]; then
+    info "Detected macOS"
+
+    if ! command -v brew >/dev/null 2>&1; then
+      error "Homebrew not found. Please install Homebrew first."
+      exit 1
+    fi
+
+    if brew list pyenv >/dev/null 2>&1; then
+      warning "pyenv already installed via Homebrew, skipping."
+    else
+      info "Installing pyenv via Homebrew..."
+      brew update
+      brew install pyenv
+    fi
+
+  else
+    info "Detected Linux/Unix"
+    install_build_deps
+
+    if [[ -d "$HOME/.pyenv" ]]; then
+      warning "~/.pyenv already exists, skipping installation."
+    else
+      info "Installing pyenv via git..."
+      git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+    fi
+  fi
+}
+
+# --------------------------------
+# Configure shell rc file
+# --------------------------------
+configure_pyenv_rc() {
+  local rc_file="$1"
+  local shell_name="$2"
+  local content=$(
+    cat <<EOF
+export PYENV_ROOT="\$HOME/.pyenv"\n[[ -d "\$PYENV_ROOT/bin" ]] && export PATH="\$PYENV_ROOT/bin:\$PATH"\neval "\$(pyenv init - $shell_name)"
+EOF
+  )
+
+  configure_rc_block \
+    "$rc_file" \
+    "# >>> pyenv initialize >>>" \
+    "# <<< pyenv initialize <<<" \
+    "$content"
+}
+
+# --------------------------------
+# Main
+# --------------------------------
+info "Installing pyenv..."
+install_pyenv
+
+info "Configuring ~/.zshrc"
+configure_pyenv_rc "$HOME/.zshrc" "zsh"
+
+info "Configuring ~/.bashrc"
+configure_pyenv_rc "$HOME/.bashrc" "bash"
+
+success "Pyenv installation and configuration complete."
+
+exec $SHELL
+

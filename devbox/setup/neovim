@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 
+source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
 function nvim_install_linux() {
   # Download the latest pre-built Neovim binaries and install them under /opt/nvim
-  curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
+  curl -LO --progress-bar https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
   sudo rm -rf /opt/nvim
   sudo tar -C /opt --transform='s/^nvim-linux-x86_64/nvim/' -xzf nvim-linux-x86_64.tar.gz
   rm nvim-linux-x86_64.tar.gz # Cleanup
@@ -10,32 +12,21 @@ function nvim_install_linux() {
 
 function nvim_configure_linux() {
   # Update the given shell rc file to add Neovim's bin directory to PATH
-
-  local inserted_start="# >>> nvim initialize >>>"
-  local inserted_end="# <<< nvim initialize <<<"
-  # shellcheck disable=SC2016
   local content='export PATH="$PATH:/opt/nvim/bin"'
   local rc_file=$1
 
-  # Check if the marker already exists
-  if grep -q "$inserted_start" "$rc_file"; then
-    # If the marker exists, replace the content between markers
-    sed -i --follow-symlinks "/$inserted_start/,/$inserted_end/c\\$inserted_start\n$content\n$inserted_end" "$rc_file" || return 1
-  else
-    # If no marker exists, append the content with markers
-    {
-      echo -e "\n$inserted_start\n$content\n$inserted_end\n"
-    } >>"$rc_file" || return 1
-  fi
+  configure_rc_block \
+    "$rc_file" \
+    "# >>> nvim initialize >>>" \
+    "# <<< nvim initialize <<<" \
+    "$content"
 }
-
-source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
 case "$(uname)" in
 Linux*)
   info "Installing Neovim for Linux..."
   nvim_install_linux
-  
+
   info "Configuring PATH for Neovim..."
   # Configure both Bash and Zsh rc files to include Neovim in PATH
   nvim_configure_linux ~/.bashrc
@@ -51,3 +42,4 @@ Darwin*)
   error "Unsupported OS: $(uname)"
   ;;
 esac
+

@@ -23,3 +23,111 @@ error() {
 success() {
   printf "${GREEN}==>${NC} ${BOLD}%s${NC}\n" "$1"
 }
+
+# --------------------------------------------------
+# detect_sed
+#
+# Usage:
+#   detect_sed
+#
+# Behavior:
+#   - Detects a usable `sed` implementation
+#   - On Linux:
+#       - Uses system `sed`
+#   - On macOS:
+#       - Prefers GNU sed (`gsed`)
+#       - If not found, prompts to install via Homebrew
+#   - Exports `SED` environment variable
+#
+# Returns:
+#   0 on success
+#   1 on failure
+#
+# Side effects:
+#   - May install `gnu-sed` via Homebrew on macOS
+#   - Sets and exports `SED`
+#
+# Notes:
+#   - Callers should rely on `$SED` instead of invoking `sed` directly
+# --------------------------------------------------
+detect_sed() {
+  SED="sed"
+
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    if command -v gsed >/dev/null 2>&1; then
+      SED="gsed"
+    else
+      warning "gsed not found on MacOS."
+
+      read -r -p "Install gsed via brew? [Y/n]: " answer || answer="n"
+      answer=${answer:-Y}
+
+      if [[ "$answer" =~ ^[Yy]$ ]]; then
+        if ! command -v brew >/dev/null 2>&1; then
+          error "brew not found. Please install Homebrew first."
+          return 1
+        fi
+
+        info "Installing gnu-sed via brew..."
+        brew install gnu-sed
+        SED="gsed"
+      else
+        error "gsed is required on Linux for this script."
+        return 1
+      fi
+    fi
+  else
+    SED="sed"
+  fi
+
+  export SED
+}
+
+# --------------------------------------------------
+# configure_rc_block
+#
+# Usage:
+#   configure_rc_block <rc_file> <start_marker> <end_marker> <content>
+#
+# Behavior:
+#   - If markers exist, replace content between them
+#   - If not, append block to rc file
+#   - Creates rc file if missing
+#   - Uses GNU sed on macOS (gsed)
+# --------------------------------------------------
+configure_rc_block() {
+  local rc_file="$1"
+  local start_marker="$2"
+  local end_marker="$3"
+  local content="$4"
+  local warn_msg="# !! Contents within this block are managed by devbox setup script"
+
+  if [[ -z "$rc_file" || -z "$start_marker" || -z "$end_marker" || -z "$content" ]]; then
+    error "configure_rc_block: missing required arguments"
+    return 1
+  fi
+
+  # Ensure rc file exists
+  [[ -f "$rc_file" ]] || touch "$rc_file"
+
+  # Detect sed (reuse common logic)
+  if ! detect_sed >/dev/null 2>&1; then
+    return 1
+  fi
+
+  # Replace or append block
+  if grep -q "$start_marker" "$rc_file"; then
+    "$SED" -i --follow-symlinks \
+      "/$start_marker/,/$end_marker/c\\$start_marker\n$warn_msg\n$content\n$end_marker" \
+      "$rc_file"
+  else
+    {
+      echo
+      echo "$start_marker"
+      echo "$content"
+      echo "$end_marker"
+      echo
+    } >>"$rc_file"
+  fi
+}
+

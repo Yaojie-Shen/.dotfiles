@@ -16,43 +16,9 @@ install_autojump() {
   rm -rf autojump
 }
 
-detect_sed() {
-  SED="sed"
-
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    if command -v gsed >/dev/null 2>&1; then
-      SED="gsed"
-    else
-      warning "gsed not found on MacOS."
-
-      read -r -p "Install gsed via brew? [Y/n]: " answer || answer="n"
-      answer=${answer:-Y}
-
-      if [[ "$answer" =~ ^[Yy]$ ]]; then
-        if ! command -v brew >/dev/null 2>&1; then
-          error "brew not found. Please install Homebrew first."
-          return 1
-        fi
-
-        info "Installing gnu-sed via brew..."
-        brew install gnu-sed
-        SED="gsed"
-      else
-        error "gsed is required on Linux for this script."
-        return 1
-      fi
-    fi
-  else
-    SED="sed"
-  fi
-
-  export SED
-}
-
 configure_autojump() {
   local content='[[ -s "${HOME}/.autojump/etc/profile.d/autojump.sh" ]] && source "${HOME}/.autojump/etc/profile.d/autojump.sh"'
   local rc_file=$1
-
 
   # Check if the marker already exists
   if grep -q "$inserted_start" "$rc_file"; then
