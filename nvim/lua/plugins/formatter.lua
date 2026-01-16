@@ -8,7 +8,7 @@ return {
       "nvimtools/none-ls.nvim",
     },
     opts = {
-      ensure_installed = { "stylua", "autopep8", "isort", "prettier" },
+      ensure_installed = { "stylua", "autopep8", "isort", "prettier", "pyproject-fmt", "shfmt" },
     },
   },
 
@@ -22,6 +22,8 @@ return {
         css = { "prettier" },
         html = { "prettier" },
         python = { "isort", "autopep8" },
+        toml = { "pyproject-fmt" },
+        shell = { "shfmt" },
       },
       -- format_on_save = {
       --   -- These options will be passed to conform.format()
