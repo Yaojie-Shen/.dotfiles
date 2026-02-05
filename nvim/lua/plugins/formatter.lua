@@ -1,5 +1,5 @@
 return {
-  -- Automate formatter installation
+  -- Mason: automate formatter installation
   {
     "jay-babu/mason-null-ls.nvim",
     event = { "VeryLazy", "BufReadPre", "BufNewFile" },
@@ -8,7 +8,7 @@ return {
       "nvimtools/none-ls.nvim",
     },
     opts = {
-      ensure_installed = { "stylua", "autopep8", "isort", "prettier", "pyproject-fmt", "shfmt" },
+      ensure_installed = { "stylua", "ruff", "isort", "prettier", "pyproject-fmt", "shfmt" },
     },
   },
 
@@ -21,7 +21,7 @@ return {
         lua = { "stylua" },
         css = { "prettier" },
         html = { "prettier" },
-        python = { "isort", "autopep8" },
+        python = { "ruff_fix", "ruff_format", "isort" },
         toml = { "pyproject-fmt" },
         shell = { "shfmt" },
       },
