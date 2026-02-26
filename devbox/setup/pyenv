@@ -4,10 +4,35 @@ set -e
 
 source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
+# Ensure Homebrew is available on macOS
+ensure_homebrew() {
+  if ! command -v brew >/dev/null 2>&1; then
+    error "Homebrew not found. Please install Homebrew first: https://brew.sh/"
+    exit 1
+  fi
+}
+
 # --------------------------------
 # Install Linux dependencies
 # --------------------------------
 install_build_deps() {
+  local OS
+  OS="$(uname -s)"
+  if [[ "$OS" == "Darwin" ]]; then
+    info "Detected macOS — installing pyenv build dependencies via Homebrew"
+
+    ensure_homebrew
+
+    # Packages requested by user
+    local pkgs=(openssl readline sqlite3 xz tcl-tk@8 libb2 zstd zlib pkgconfig)
+
+    info "Updating Homebrew and installing: ${pkgs[*]}"
+    brew update
+    brew install "${pkgs[@]}"
+
+    return
+  fi
+
   info "Installing pyenv dependencies on Linux..."
 
   if command -v apt-get >/dev/null 2>&1; then
@@ -47,10 +72,7 @@ install_pyenv() {
   if [[ "$OS" == "Darwin" ]]; then
     info "Detected macOS"
 
-    if ! command -v brew >/dev/null 2>&1; then
-      error "Homebrew not found. Please install Homebrew first."
-      exit 1
-    fi
+    ensure_homebrew
 
     if brew list pyenv >/dev/null 2>&1; then
       warning "pyenv already installed via Homebrew, skipping."
@@ -60,15 +82,33 @@ install_pyenv() {
       brew install pyenv
     fi
 
+    # Install pyenv-virtualenv via Homebrew on macOS
+    if brew list pyenv-virtualenv >/dev/null 2>&1; then
+      warning "pyenv-virtualenv already installed via Homebrew, skipping."
+    else
+      info "Installing pyenv-virtualenv via Homebrew..."
+      brew install pyenv-virtualenv
+    fi
+
   else
     info "Detected Linux/Unix"
     install_build_deps
 
     if [[ -d "$HOME/.pyenv" ]]; then
-      warning "~/.pyenv already exists, skipping installation."
+      warning "$HOME/.pyenv already exists, skipping installation."
     else
       info "Installing pyenv via git..."
       git clone https://github.com/pyenv/pyenv.git "$HOME/.pyenv"
+    fi
+
+    # Install pyenv-virtualenv via git into $HOME/.pyenv/plugins on Linux
+    local plugin_dir="$HOME/.pyenv/plugins/pyenv-virtualenv"
+    if [[ -d "$plugin_dir" ]]; then
+      warning "pyenv-virtualenv already installed at $plugin_dir, skipping."
+    else
+      info "Installing pyenv-virtualenv into $plugin_dir"
+      mkdir -p "$(dirname "$plugin_dir")"
+      git clone https://github.com/pyenv/pyenv-virtualenv.git "$plugin_dir"
     fi
   fi
 }
@@ -79,9 +119,9 @@ install_pyenv() {
 configure_pyenv_rc() {
   local rc_file="$1"
   local shell_name="$2"
-  local content=$(
-    cat <<EOF
-export PYENV_ROOT="\$HOME/.pyenv"\n[[ -d "\$PYENV_ROOT/bin" ]] && export PATH="\$PYENV_ROOT/bin:\$PATH"\neval "\$(pyenv init - $shell_name)"
+  local content
+  content=$(cat <<EOF
+export PYENV_ROOT="\$HOME/.pyenv"\n[[ -d "\$PYENV_ROOT/bin" ]] && export PATH="\$PYENV_ROOT/bin:\$PATH"\neval "\$(pyenv init - $shell_name)"\neval "\$(pyenv virtualenv-init -)"
 EOF
   )
 
