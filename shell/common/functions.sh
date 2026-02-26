@@ -114,17 +114,60 @@ python_from_url() {
 }
 
 lsl() {
-  ls $@ | less
+  ls "$@" | less
 }
 
 append_pythonpath() {
+  local p
   if [[ -z $1 ]]; then
-    export PYTHONPATH=$(pwd):$PYTHONPATH
-    echo "Append $(pwd) to PYTHONPATH"
+    p=$(pwd)
+    export PYTHONPATH="$p:$PYTHONPATH"
+    echo "Append $p to PYTHONPATH"
   else
     export PYTHONPATH="$PYTHONPATH:$1"
     echo "Append $1 to PYTHONPATH"
   fi
+}
+
+# Append a directory to PATH if not already present.
+# Usage: append_path [DIR]
+# If DIR is omitted, uses the current working directory.
+append_path() {
+  local dir
+  if [[ -z $1 ]]; then
+    dir="$(pwd)"
+  else
+    dir="$1"
+  fi
+
+  # Expand leading ~ to $HOME and remove trailing slash
+  dir="${dir/#\~/$HOME}"
+  dir="${dir%/}"
+
+  if [[ -z "$dir" ]]; then
+    echo "Error: empty directory specified" >&2
+    return 1
+  fi
+
+  if [[ ! -d "$dir" ]]; then
+    echo "Warning: directory does not exist: $dir" >&2
+    # continue — user may want to add non-existing path
+  fi
+
+  # Avoid duplicates (match with colons to prevent partial matches)
+  case ":$PATH:" in
+    *":$dir:"*)
+      echo "PATH already contains $dir"
+      return 0
+      ;;
+  esac
+
+  if [[ -z "$PATH" ]]; then
+    export PATH="$dir"
+  else
+    export PATH="$PATH:$dir"
+  fi
+  echo "Appended $dir to PATH"
 }
 
 # Set IPython as the default debugger
