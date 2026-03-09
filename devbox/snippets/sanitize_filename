@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+show_help() {
+cat <<EOF
+sanitize_filename - normalize a string into a safe filename
+
+Usage:
+  sanitize_filename STRING
+  sanitize_filename -h | --help
+
+Description:
+  Converts STRING to lowercase and replaces non-alphanumeric
+  characters with "_". Leading and trailing "_" are removed.
+
+Example:
+  sanitize_filename "Hello World!"
+  -> hello_world
+EOF
+}
+
+sanitize_filename() {
+    printf "%s" "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/_/g; s/^_+|_+$//g'
+}
+
+case "${1:-}" in
+    -h|--help|"")
+        show_help
+        exit 0
+        ;;
+esac
+
+sanitize_filename "$1"
