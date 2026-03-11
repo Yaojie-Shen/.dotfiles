@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -e
+
+DOTBOT_DIR="dotbot"
+
+DOTBOT_BIN="bin/dotbot"
+BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Optional private/custom dotbot config (kept outside this repo).
+# Convention: 
+# - persistent/install.conf.yaml, or
+# - persistent/custom/install.conf.yaml (the `custom` folder can be a git repository)
+if [[ -f "${BASEDIR}/persistent/install.conf.yaml" ]]; then
+  CUSTOM_CONFIG="${BASEDIR}/persistent/install.conf.yaml"
+elif [[ -f "${BASEDIR}/persistent/custom/install.conf.yaml" ]]; then
+  CUSTOM_CONFIG="${BASEDIR}/persistent/custom/install.conf.yaml"
+fi
+
+
+if [[ -n "${CUSTOM_CONFIG}" ]]; then
+  CUSTOM_DIR="${CUSTOM_CONFIG%/*}"
+  echo ">>> Running custom dotbot config: ${CUSTOM_CONFIG}" >&2
+  "${BASEDIR}/${DOTBOT_DIR}/${DOTBOT_BIN}" -d "${CUSTOM_DIR}" -c "${CUSTOM_CONFIG}" "${@}"
+fi

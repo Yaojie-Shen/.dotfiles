@@ -2,12 +2,12 @@
 #
 # The custom scripts should be placed in:
 # - ${HOME}/.persistent/custom.sh, or
-# - ${HOME}/.persistent/custom/*.sh
+# - ${HOME}/.persistent/custom/shell/*.sh
 # and will be sourced automatically.
 if [[ -f "${HOME}/.persistent/custom.sh" ]]; then
     source ${HOME}/.persistent/custom.sh
-elif [[ -d "${HOME}/.persistent/custom" ]]; then
-    for custom_shell in "${HOME}/.persistent/custom/"*.sh; do
+elif [[ -d "${HOME}/.persistent/custom/shell" ]]; then
+    for custom_shell in "${HOME}/.persistent/custom/shell/"*.sh; do
         . "${custom_shell}"
     done
 fi
