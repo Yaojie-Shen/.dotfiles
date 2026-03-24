@@ -13,11 +13,11 @@ info() {
 }
 
 warning() {
-  printf "${YELLOW}Warning:${NC} %s\n" "$1"
+  printf "${YELLOW}Warning:${NC} %s\n" "$1" >&2
 }
 
 error() {
-  printf "${RED}Error:${NC} %s\n" "$1"
+  printf "${RED}Error:${NC} %s\n" "$1" >&2
 }
 
 success() {
