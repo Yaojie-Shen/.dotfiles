@@ -2,12 +2,12 @@
 
 set -Eeuo pipefail
 
-JLESS_VERSION="0.9.0"
-JLESS_BIN=""
+CSVLENS_VERSION="0.15.1"
+CSVLENS_BIN=""
 
 source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
-jless_default_url() {
+csvlens_default_url() {
   local os arch target
   os="$(uname -s)"
   arch="$(uname -m)"
@@ -27,14 +27,10 @@ jless_default_url() {
 
   case "$os" in
   Darwin)
-    target="${arch}-apple-darwin"
+    target="apple-darwin"
     ;;
   Linux)
-    if [[ "$arch" != "x86_64" ]]; then
-      error "Unsupported Linux architecture for standalone jless: $arch (use --url to specify a custom download URL)"
-      return 1
-    fi
-    target="${arch}-unknown-linux-gnu"
+    target="unknown-linux-gnu"
     ;;
   *)
     error "Unsupported OS: $os (use --url to specify a custom download URL)"
@@ -42,7 +38,7 @@ jless_default_url() {
     ;;
   esac
 
-  printf '%s\n' "https://github.com/PaulJuliusMartinez/jless/releases/download/v${JLESS_VERSION}/jless-v${JLESS_VERSION}-${target}.zip"
+  printf '%s\n' "https://github.com/YS-L/csvlens/releases/download/v${CSVLENS_VERSION}/csvlens-${arch}-${target}.tar.xz"
 }
 
 usage() {
@@ -52,13 +48,13 @@ Usage: $(basename "$0") [options] [URL]
 Behavior:
   - If Homebrew is available, prefer installing/uninstalling via brew.
   - If Homebrew install fails (or brew is unavailable), falls back to direct binary download.
-  - Uninstall also removes legacy standalone installs at /usr/local/bin/jless (regular file only).
+  - Uninstall also removes legacy standalone installs at /usr/local/bin/csvlens (regular file only).
   - Standalone download URL is auto-selected based on OS/arch when not specified.
 
 Options:
-  -u, --uninstall    Uninstall jless
+  -u, --uninstall    Uninstall csvlens
   -h, --help         Show this help message
-  --url <URL>        Specify custom jless download URL
+  --url <URL>        Specify custom csvlens download URL
 
 Arguments:
   URL                Alternative way to specify custom download URL
@@ -70,60 +66,60 @@ uninstall() {
   local removed_any=0
 
   if command -v brew >/dev/null 2>&1; then
-    if brew list --versions jless >/dev/null 2>&1; then
-      info "Uninstalling jless via Homebrew..."
-      brew uninstall jless
+    if brew list --versions csvlens >/dev/null 2>&1; then
+      info "Uninstalling csvlens via Homebrew..."
+      brew uninstall csvlens
       removed_any=1
     fi
   fi
 
-  # Backward-compatible cleanup: older devbox versions installed a standalone binary here.
+  # Backward-compatible cleanup: older devbox versions may have installed a standalone binary here.
   # Keep this lightweight & safe: only remove the legacy file if it is a regular file.
   # If it's a symlink (possibly managed by Homebrew or user), skip removal.
-  if [ -f /usr/local/bin/jless ]; then
-    info "Removing legacy standalone /usr/local/bin/jless..."
-    sudo rm -f /usr/local/bin/jless
+  if [ -f /usr/local/bin/csvlens ]; then
+    info "Removing legacy standalone /usr/local/bin/csvlens..."
+    sudo rm -f /usr/local/bin/csvlens
     removed_any=1
-  elif [ -L /usr/local/bin/jless ]; then
-    info "Skipping /usr/local/bin/jless (symlink)"
+  elif [ -L /usr/local/bin/csvlens ]; then
+    info "Skipping /usr/local/bin/csvlens (symlink)"
   fi
 
   if [[ "$removed_any" -eq 1 ]]; then
-    success "jless uninstalled successfully!"
+    success "csvlens uninstalled successfully!"
   else
-    warning "jless is not installed (neither Homebrew nor /usr/local/bin)"
+    warning "csvlens is not installed (neither Homebrew nor /usr/local/bin)"
     error "Nothing to remove"
   fi
 }
 
 install() {
-  # If jless is already installed (any method), do nothing.
+  # If csvlens is already installed (any method), do nothing.
   if command -v brew >/dev/null 2>&1; then
-    if brew list --versions jless >/dev/null 2>&1; then
+    if brew list --versions csvlens >/dev/null 2>&1; then
       local brew_prefix brew_bin resolved
       brew_prefix="$(brew --prefix 2>/dev/null || true)"
-      brew_bin="${brew_prefix%/}/bin/jless"
-      resolved="$(command -v jless 2>/dev/null || true)"
+      brew_bin="${brew_prefix%/}/bin/csvlens"
+      resolved="$(command -v csvlens 2>/dev/null || true)"
       if [[ -n "$resolved" && -n "$brew_bin" && "$resolved" != "$brew_bin" ]]; then
-        warning "Multiple jless detected: PATH resolves to $resolved (Homebrew is $brew_bin)"
+        warning "Multiple csvlens detected: PATH resolves to $resolved (Homebrew is $brew_bin)"
       fi
-      success "jless is already installed via Homebrew"
+      success "csvlens is already installed via Homebrew"
       return 0
     fi
   fi
 
   local existing
-  existing="$(command -v jless 2>/dev/null || true)"
+  existing="$(command -v csvlens 2>/dev/null || true)"
   if [[ -n "$existing" ]]; then
-    success "jless is already installed: $existing"
+    success "csvlens is already installed: $existing"
     return 0
   fi
 
   # Prefer Homebrew when available. Still supports direct binary install as fallback.
   if command -v brew >/dev/null 2>&1; then
-    info "Installing jless via Homebrew..."
-    if brew install jless; then
-      success "jless installed successfully via Homebrew!"
+    info "Installing csvlens via Homebrew..."
+    if brew install csvlens; then
+      success "csvlens installed successfully via Homebrew!"
       return 0
     fi
 
@@ -131,26 +127,38 @@ install() {
   fi
 
   # Select standalone URL based on OS/arch when user didn't specify one.
-  if [[ -z "${JLESS_BIN:-}" ]]; then
-    JLESS_BIN="$(jless_default_url)"
+  if [[ -z "${CSVLENS_BIN:-}" ]]; then
+    CSVLENS_BIN="$(csvlens_default_url)"
   fi
 
-  local tmp_dir=$(mktemp -d)
+  local tmp_dir
+  tmp_dir=$(mktemp -d)
 
-  info "Downloading jless from $JLESS_BIN -> $tmp_dir..."
-  curl -L --progress-bar "$JLESS_BIN" -o "$tmp_dir/jless.zip" -f
-  info "Unzipping jless..."
-  unzip -o -q "$tmp_dir/jless.zip" -d "$tmp_dir" jless
-  info "Installing jless to /usr/local/bin..."
-  sudo mv "$tmp_dir/jless" /usr/local/bin/jless
+  info "Downloading csvlens from $CSVLENS_BIN -> $tmp_dir..."
+  curl -L --progress-bar "$CSVLENS_BIN" -o "$tmp_dir/csvlens.tar.xz" -f
+
+  info "Extracting csvlens..."
+  tar -xf "$tmp_dir/csvlens.tar.xz" -C "$tmp_dir"
+
+  if [[ ! -f "$tmp_dir/csvlens" ]]; then
+    error "Failed to locate csvlens binary in the archive"
+    error "Please specify a custom URL via --url"
+    rm -rf "$tmp_dir"
+    return 1
+  fi
+
+  chmod +x "$tmp_dir/csvlens"
+
+  info "Installing csvlens to /usr/local/bin..."
+  sudo mv "$tmp_dir/csvlens" /usr/local/bin/csvlens
 
   printf "\n"
-  /usr/local/bin/jless --help
+  /usr/local/bin/csvlens --help || true
   printf "\n"
 
   rm -rf "$tmp_dir"
 
-  success "jless installed successfully!"
+  success "csvlens installed successfully!"
 }
 
 # Parse options
@@ -166,12 +174,12 @@ while [[ $# -gt 0 ]]; do
     usage
     ;;
   --url)
-    JLESS_BIN="$2"
+    CSVLENS_BIN="$2"
     shift 2
     ;;
   *)
     if [[ $1 != -* ]]; then
-      JLESS_BIN="$1"
+      CSVLENS_BIN="$1"
       shift
     else
       error "Unknown option: $1"
@@ -186,3 +194,4 @@ if [[ "$ACTION" == "uninstall" ]]; then
 else
   install
 fi
+
