@@ -141,6 +141,15 @@ install() {
   curl -L --progress-bar "$JLESS_BIN" -o "$tmp_dir/jless.zip" -f
   info "Unzipping jless..."
   unzip -o -q "$tmp_dir/jless.zip" -d "$tmp_dir" jless
+
+  if [[ ! -f "$tmp_dir/jless" ]]; then
+    error "Failed to locate jless binary in the archive"
+    error "Please specify a custom URL via --url"
+    rm -rf "$tmp_dir"
+    return 1
+  fi
+
+  chmod +x "$tmp_dir/jless"
   info "Installing jless to /usr/local/bin..."
   sudo mv "$tmp_dir/jless" /usr/local/bin/jless
 

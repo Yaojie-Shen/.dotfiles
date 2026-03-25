@@ -140,17 +140,30 @@ install() {
   info "Extracting csvlens..."
   tar -xf "$tmp_dir/csvlens.tar.xz" -C "$tmp_dir"
 
-  if [[ ! -f "$tmp_dir/csvlens" ]]; then
+  # The archive contains a top-level folder like:
+  #   csvlens-x86_64-unknown-linux-gnu/csvlens
+  # Find 'csvlens' in two level folders
+  local csvlens_path=""
+  shopt -s nullglob
+  for p in "$tmp_dir/csvlens" "$tmp_dir"/*/csvlens; do
+    if [[ -f "$p" ]]; then
+      csvlens_path="$p"
+      break
+    fi
+  done
+  shopt -u nullglob
+
+  if [[ -z "$csvlens_path" || ! -f "$csvlens_path" ]]; then
     error "Failed to locate csvlens binary in the archive"
     error "Please specify a custom URL via --url"
     rm -rf "$tmp_dir"
     return 1
   fi
 
-  chmod +x "$tmp_dir/csvlens"
+  chmod +x "$csvlens_path"
 
   info "Installing csvlens to /usr/local/bin..."
-  sudo mv "$tmp_dir/csvlens" /usr/local/bin/csvlens
+  sudo mv "$csvlens_path" /usr/local/bin/csvlens
 
   printf "\n"
   /usr/local/bin/csvlens --help || true
@@ -194,4 +207,3 @@ if [[ "$ACTION" == "uninstall" ]]; then
 else
   install
 fi
-
