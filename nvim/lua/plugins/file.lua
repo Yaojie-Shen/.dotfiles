@@ -9,7 +9,7 @@ return {
         dotfiles = false,
         -- Show git-ignored files
         git_ignored = false,
-        custom = { "__pycache__", ".git", ".vscode" },
+        custom = { "__pycache__", ".git", ".vscode", "*.egg-info" },
       },
       renderer = {
         -- Do not group empty folders into one line

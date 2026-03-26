@@ -31,6 +31,7 @@ case "$pkg_manager" in
     # Required by neovim telescope, optional but useful.
     sudo apt-get install -y fd-find ripgrep
 
+    sudo apt-get install -y tree
     ;;
   *)
     echo "Distribution not supported."
