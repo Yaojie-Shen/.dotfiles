@@ -4,26 +4,30 @@
 TIME=1800
 SOCK=/tmp/housekeeper_ctl.sock
 CONTROL_FILE=/tmp/housekeeper_ctl
-CMD="pause"   # pause|enable|disable|auto|monitor
+# Require explicit command; do NOT default to pause
+CMD=""   # pause|enable|disable|auto|monitor|sleep
 UI="ansi"
+SLEEP=""
 
 print_help() {
   cat <<EOF
 housekeeper_ctl — control commands for housekeeper
 
 Usage:
-  $(basename "$0") [pause [SECONDS]] [OPTIONS]
+  $(basename "$0") <command> [args] [OPTIONS]
   $(basename "$0") enable [OPTIONS]
   $(basename "$0") disable [OPTIONS]
   $(basename "$0") auto [OPTIONS]
   $(basename "$0") monitor [--ui ansi|line] [OPTIONS]
+  $(basename "$0") sleep [MILLISECONDS] [OPTIONS]
 
-Commands:
+  Commands:
   pause [SECONDS]   Pause workers for SECONDS (default: $TIME)
   enable            Enable workers immediately
   disable           Disable workers immediately
   auto              Switch to auto mode (status controller)
   monitor           Subscribe and display live status
+  sleep [MILLISECONDS] Set worker sleep interval after each forward (0-60000ms)
 
 Options:
   -s, --socket PATH        Unix socket path (default: $SOCK)
@@ -44,10 +48,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     help|-h|--help)
       print_help; exit 0 ;;
-    enable|disable|pause|auto|monitor)
+    enable|disable|pause|auto|monitor|sleep)
       CMD="$1"; shift
       # optional SECONDS after 'pause'
-      if [[ "$CMD" == "pause" && $# -gt 0 && "$1" =~ ^[0-9]+$ ]]; then TIME="$1"; shift; fi ;;
+      if [[ "$CMD" == "pause" && $# -gt 0 && "$1" =~ ^[0-9]+$ ]]; then TIME="$1"; shift; fi
+      # optional MILLISECONDS after 'sleep'
+      if [[ "$CMD" == "sleep" && $# -gt 0 ]]; then SLEEP="$1"; shift; fi ;;
     -s|--socket)
       if [[ -n "$2" ]]; then SOCK="$2"; shift 2; else echo "Error: -s/--socket requires PATH" >&2; exit 1; fi ;;
     -f|--file|--control-file)
@@ -59,6 +65,14 @@ while [[ $# -gt 0 ]]; do
       echo "Unknown option or misplaced argument: $1" >&2; echo; print_help; exit 1 ;;
   esac
 done
+
+# Ensure a command is provided
+if [[ -z "$CMD" ]]; then
+  echo "ERROR: Invalid arguments, must specify command (pause|enable|disable|auto|monitor|sleep)" >&2
+  echo
+  print_help
+  exit 1
+fi
 
 # Validate for pause
 if [[ "$CMD" == "pause" ]] && ! [[ "$TIME" =~ ^[0-9]+$ ]]; then echo "Error: TIME must be a non-negative integer (got: $TIME)" >&2; exit 1; fi
@@ -232,4 +246,7 @@ PY
     # Fallback to file only for pause
     echo "$TIME" > "$CONTROL_FILE"
     echo "INFO: pause ${TIME}s via $CONTROL_FILE"; exit 0 ;;
+  sleep)
+    if [[ -z "$SLEEP" ]]; then echo "ERROR: sleep need milliseconds (allow float)" >&2; exit 1; fi
+    if send_sock "sleep $SLEEP"; then echo "INFO: sleep ${SLEEP}ms via $SOCK"; exit 0; else echo "ERROR: socket not available for sleep ($SOCK)" >&2; exit 1; fi ;;
 esac

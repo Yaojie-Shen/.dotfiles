@@ -15,7 +15,7 @@ import socket
 import atexit
 import json
 import os
-from multiprocessing import Process, Lock, Event
+from multiprocessing import Process, Lock, Event, Value
 from typing import Optional, List
 
 import torch
@@ -30,6 +30,9 @@ class GPUWorker:
 
         self._net = None
         self._inputs = None
+
+        # sleep interval (milliseconds) shared across processes
+        self._sleep_interval = Value('d', 0.0)
 
         self.control_lock = Lock()
         self.enabled = Event()
@@ -61,6 +64,14 @@ class GPUWorker:
         while True:
             if self.is_enabled():
                 self.net(self.inputs)
+                # throttle loop by sleeping configurable interval
+                try:
+                    si = float(self._sleep_interval.value)
+                except Exception:
+                    si = 0.0
+                if si > 0:
+                    # interpret sleep interval as milliseconds
+                    time.sleep(si / 1000.0)
             else:
                 self.clean()
 
@@ -75,6 +86,15 @@ class GPUWorker:
     def is_enabled(self):
         with self.control_lock:
             return self.enabled.is_set()
+
+    def set_sleep(self, milliseconds: float):
+        try:
+            # Limit to a reasonable range [0, 1000] ms (max 1s)
+            milliseconds = max(0.0, min(float(milliseconds), 1000.0))
+        except Exception:
+            milliseconds = 0.0
+        with self.control_lock:
+            self._sleep_interval.value = milliseconds
 
 
 class GPUStatus:
@@ -270,6 +290,8 @@ class CommandController:
         self.pause_total = 0
         # persistent mode: 'auto' | 'enabled' | 'disabled'
         self.mode = 'auto'
+        # worker sleep interval (milliseconds), None means unchanged
+        self.sleep_millis: Optional[float] = None
         # init socket
         try:
             if os.path.exists(self.ctrl_path):
@@ -341,6 +363,18 @@ class CommandController:
             elif op == "auto":
                 self.mode = 'auto'
                 logger.info("received control: auto (mode=auto)")
+            elif op == "sleep":
+                # sleep milliseconds after each forward pass
+                ms = 0.0
+                if len(parts) >= 2:
+                    try:
+                        ms = float(parts[1])
+                    except Exception:
+                        ms = 0.0
+                # clamp to [0, 1000] ms
+                ms = max(0.0, min(ms, 1000.0))
+                self.sleep_millis = ms
+                logger.info("received control: sleep %.0fms", ms)
             else:
                 logger.warning("unknown control: %s", cmd)
 
@@ -360,6 +394,8 @@ class CommandController:
         if remaining > 0:
             out["pause_remaining"] = remaining
             out["pause_total"] = max(int(self.pause_total), remaining)
+        if self.sleep_millis is not None:
+            out["sleep_millis"] = float(self.sleep_millis)
         return out
 
 
@@ -509,6 +545,11 @@ def render_line(snap: dict) -> str:
         parts.append(f"Mem={int(float(s['mem']))}MB")
     if 'pause_remaining' in s and 'pause_total' in s:
         parts.append(f"Pause={int(s['pause_remaining'])}/{int(s['pause_total'])}s")
+    if 'sleep_ms' in s:
+        try:
+            parts.append(f"Sleep={float(s['sleep_ms']):.0f}ms")
+        except Exception:
+            pass
     return ts + ' ' + ', '.join(parts)
 
 def render_ansi(snap: dict) -> str:
@@ -549,7 +590,12 @@ def render_ansi(snap: dict) -> str:
     lines.append(f"Util:     {util:5.1f}%  {util_bar}")
     lines.append(f"Util(3h): {util3:5.1f}%  {util3_bar}")
     lines.append(f"Mem:      {int(mem):5d}MB {mem_bar}")
-    lines.append(f"Pause: {pause_bar}")
+    lines.append(f"Pause:            {pause_bar}")
+    if 'sleep_ms' in s:
+        try:
+            lines.append(f"Sleep: {float(s['sleep_ms']):8.2f}ms")
+        except Exception:
+            pass
     return '\x1b[2J\x1b[H' + '\n'.join(lines)
 
 
@@ -612,6 +658,15 @@ class Housekeeper:
                 for w in self._workers:
                     w.disable()
 
+            # apply sleep interval control if present (milliseconds)
+            if "sleep_millis" in cmd:
+                try:
+                    si = float(cmd["sleep_millis"])
+                except Exception:
+                    si = 0.0
+                for w in self._workers:
+                    w.set_sleep(si)
+
             # info dict for logging
             keeping = keeping_now()
             info = {"Keeping": keeping, "Mode": mode}
@@ -637,6 +692,11 @@ class Housekeeper:
             if mem is not None:
                 info["Mem"] = f"{int(mem)}MB"
             info["Decision"] = decision
+            if "sleep_millis" in cmd:
+                try:
+                    info["SleepMs"] = f"{float(cmd['sleep_millis']):.0f}ms"
+                except Exception:
+                    pass
 
             # publish snapshot (JSON compact)
             snap = {
@@ -660,6 +720,12 @@ class Housekeeper:
             if "Mem" in info:
                 try:
                     snap["mem"] = int(str(info["Mem"]).rstrip('MB'))
+                except Exception:
+                    pass
+            # attach sleep (milliseconds) if present
+            if "sleep_millis" in cmd:
+                try:
+                    snap["sleep_ms"] = float(cmd["sleep_millis"])
                 except Exception:
                     pass
             if "User Active" in info:
@@ -688,12 +754,15 @@ class Housekeeper:
             if self.ui_mode == 'ansi':
                 screen = render_ansi(snap)
                 print(screen, end='', flush=True)
-            else:
+            elif self.ui_mode == 'line':
                 # dynamic status line (single-line refresh)
                 line = render_line(snap)
                 pad = max(self._line_len - len(line), 0)
                 print("\r" + line + (" " * pad), end="", flush=True)
                 self._line_len = len(line)
+            elif self.ui_mode == 'none':
+                # no UI output
+                pass
 
             tick += 1
 
@@ -704,7 +773,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--control_file", default="/tmp/housekeeper_ctl", type=str, help="control file for pause fallback")
     parser.add_argument("--control_socket", default="/tmp/housekeeper_ctl.sock", type=str, help="unix socket for control")
-    parser.add_argument("--ui", choices=["line", "ansi"], default="line", help="UI mode: line|ansi")
+    parser.add_argument("--ui", choices=["line", "ansi", "none"], default="none", help="UI mode: line|ansi|none (no UI output)")
     args = parser.parse_args()
     housekeeper = Housekeeper(devices=list(range(torch.cuda.device_count())), pause_file=args.control_file,
                               control_socket=args.control_socket, ui_mode=args.ui)
