@@ -2,7 +2,7 @@
 source "${HOME}/.shell/bash/bash-it.bashrc"
 
 # Devbox
-source "${HOME}/.shell/zsh/devbox.zshrc"
+source "${HOME}/.shell/bash/devbox.bashrc"
 
 # Aliases
 source "${HOME}/.shell/common/aliases.sh"
