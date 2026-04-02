@@ -7,6 +7,42 @@ JLESS_BIN=""
 
 source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
+install_dependency() {
+  # Dependencies are only required for standalone (downloaded) jless on Linux.
+  [[ "$(uname -s)" == "Linux" ]] || return 0
+
+  local pkg_mgr
+  pkg_mgr="$(detect_package_manager)"
+  if [[ "$pkg_mgr" == "unsupported" || -z "$pkg_mgr" ]]; then
+    warning "unsupported linux distro, skip installing dependencies"
+    return 0
+  fi
+
+  case "$pkg_mgr" in
+  apt-get)
+    info "Installing jless dependencies via apt-get (libxcb*)..."
+    sudo apt-get update || warning "apt-get update failed (continuing)"
+    sudo apt-get install -y libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev || \
+      warning "apt-get install failed (continuing)"
+    ;;
+
+  dnf)
+    info "Installing jless dependencies via dnf (libxcb*)..."
+    sudo dnf install -y libxcb-devel || warning "dnf install failed (continuing)"
+    ;;
+
+  yum)
+    info "Installing jless dependencies via yum (libxcb*)..."
+    sudo yum install -y libxcb-devel || warning "yum install failed (continuing)"
+    ;;
+
+  *)
+    warning "unsupported package manager ($pkg_mgr), skip installing dependencies"
+    return 0
+    ;;
+  esac
+}
+
 jless_default_url() {
   local os arch target
   os="$(uname -s)"
@@ -152,6 +188,8 @@ install() {
   chmod +x "$tmp_dir/jless"
   info "Installing jless to /usr/local/bin..."
   sudo mv "$tmp_dir/jless" /usr/local/bin/jless
+
+  install_dependency
 
   printf "\n"
   /usr/local/bin/jless --help

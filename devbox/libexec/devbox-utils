@@ -131,3 +131,50 @@ configure_rc_block() {
   fi
 }
 
+# --------------------------------------------------
+# detect_package_manager
+#
+# Usage:
+#   detect_package_manager
+#
+# Behavior:
+#   - Detects a usable package manager for the current OS
+#   - On Linux:
+#       - Uses `/etc/os-release` and `ID` to map common distros
+#   - On macOS:
+#       - Uses Homebrew (`brew`) when available
+#   - Prints the detected package manager to stdout
+#   - Prints "unsupported" if none is detected
+#
+# Output:
+#   apt-get | dnf | yum | brew | unsupported
+# --------------------------------------------------
+detect_package_manager() {
+  local OS
+  OS="$(uname -s 2>/dev/null || true)"
+
+  case "$OS" in
+  Darwin) command -v brew >/dev/null 2>&1 && echo "brew" || echo "unsupported" ;;
+  Linux)
+    if [[ -f /etc/os-release ]]; then
+      # shellcheck disable=SC1091
+      . /etc/os-release
+    fi
+
+    case "${ID:-}" in
+    debian | ubuntu | mint | linuxmint) echo "apt-get" ;;
+    fedora | rhel | centos)
+      if command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+      elif command -v yum >/dev/null 2>&1; then
+        echo "yum"
+      else
+        echo "unsupported"
+      fi
+      ;;
+    *) echo "unsupported" ;;
+    esac
+    ;;
+  *) echo "unsupported" ;;
+  esac
+}
