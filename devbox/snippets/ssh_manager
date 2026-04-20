@@ -325,7 +325,7 @@ class SSHConfigManager:
 
             for line in lines:
                 line = line.strip()
-                if line.startswith(f'Host {name}'):
+                if line.strip() == f'Host {name}':
                     # Found an unmanaged config with same name - this is an error
                     color_print(f"✗ Error: Found existing SSH configuration for '{name}' in config file.", Colors.RED,
                                 bold=True)
@@ -379,7 +379,7 @@ class SSHConfigManager:
 
         for line in lines:
             line = line.strip()
-            if line.startswith(f'Host {name}'):
+            if line.strip() == f'Host {name}':
                 # Found an unmanaged config with same name - this is an error
                 color_print(f"✗ Error: Found existing SSH configuration for '{name}' in config file.", Colors.RED,
                             bold=True)
