@@ -1,8 +1,71 @@
 #!/usr/bin/env bash
 
-set -e
+set -Eeuo pipefail
 
 source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options]
+
+Behavior:
+  - On macOS, prefers installing via Homebrew.
+  - On Linux, installs dependencies and clones pyenv directly from GitHub.
+  - Automatically configures ~/.zshrc and ~/.bashrc.
+
+Options:
+  -u, --uninstall    Uninstall pyenv
+  -h, --help         Show this help message
+EOF
+  exit 0
+}
+
+uninstall() {
+  local removed_any=0
+  
+  OS="$(uname -s)"
+  if [[ "$OS" == "Darwin" ]]; then
+    if command -v brew >/dev/null 2>&1; then
+      if brew list pyenv-virtualenv >/dev/null 2>&1; then
+        info "Uninstalling pyenv-virtualenv via Homebrew..."
+        brew uninstall pyenv-virtualenv
+        removed_any=1
+      fi
+      if brew list pyenv >/dev/null 2>&1; then
+        info "Uninstalling pyenv via Homebrew..."
+        brew uninstall pyenv
+        removed_any=1
+      fi
+    fi
+  else
+    if [[ -d "$HOME/.pyenv" ]]; then
+      info "Removing ~/.pyenv directory..."
+      rm -rf "$HOME/.pyenv"
+      removed_any=1
+    fi
+  fi
+
+  # Clean up rc files
+  # Detect sed
+  if detect_sed >/dev/null 2>&1; then
+    for rc in ~/.zshrc ~/.bashrc; do
+      if [[ -f "$rc" ]]; then
+        if grep -q "# >>> pyenv initialize >>>" "$rc"; then
+          info "Removing pyenv initialization from $rc..."
+          "$SED" -i --follow-symlinks "/# >>> pyenv initialize >>>/,/# <<< pyenv initialize <<</d" "$rc"
+          removed_any=1
+        fi
+      fi
+    done
+  fi
+
+  if [[ "$removed_any" -eq 1 ]]; then
+    success "pyenv uninstalled successfully!"
+  else
+    warning "pyenv is not installed"
+    error "Nothing to remove"
+  fi
+}
 
 # Ensure Homebrew is available on macOS
 ensure_homebrew() {
@@ -121,7 +184,12 @@ configure_pyenv_rc() {
   local shell_name="$2"
   local content
   content=$(cat <<EOF
-export PYENV_ROOT="\$HOME/.pyenv"\n[[ -d "\$PYENV_ROOT/bin" ]] && export PATH="\$PYENV_ROOT/bin:\$PATH"\neval "\$(pyenv init - $shell_name)"\neval "\$(pyenv virtualenv-init -)"
+export PYENV_ROOT="\$HOME/.pyenv"
+[[ -d "\$PYENV_ROOT/bin" ]] && export PATH="\$PYENV_ROOT/bin:\$PATH"
+if command -v pyenv >/dev/null 2>&1; then
+  eval "\$(pyenv init - $shell_name)"
+  eval "\$(pyenv virtualenv-init -)"
+fi
 EOF
   )
 
@@ -132,19 +200,46 @@ EOF
     "$content"
 }
 
+install() {
+  info "Installing pyenv..."
+  install_pyenv
+
+  info "Configuring ~/.zshrc"
+  configure_pyenv_rc "$HOME/.zshrc" "zsh"
+
+  info "Configuring ~/.bashrc"
+  configure_pyenv_rc "$HOME/.bashrc" "bash"
+
+  success "Pyenv installation and configuration complete."
+  
+  if [[ "${SHELL:-}" != "" ]]; then
+    exec "$SHELL"
+  fi
+}
+
 # --------------------------------
 # Main
 # --------------------------------
-info "Installing pyenv..."
-install_pyenv
+ACTION="install"
 
-info "Configuring ~/.zshrc"
-configure_pyenv_rc "$HOME/.zshrc" "zsh"
+while [[ $# -gt 0 ]]; do
+  case $1 in
+  -u | --uninstall)
+    ACTION="uninstall"
+    shift
+    ;;
+  -h | --help)
+    usage
+    ;;
+  *)
+    error "Unknown option: $1"
+    usage
+    ;;
+  esac
+done
 
-info "Configuring ~/.bashrc"
-configure_pyenv_rc "$HOME/.bashrc" "bash"
-
-success "Pyenv installation and configuration complete."
-
-exec $SHELL
-
+if [[ "$ACTION" == "uninstall" ]]; then
+  uninstall
+else
+  install
+fi

@@ -115,10 +115,14 @@ configure_rc_block() {
     return 1
   fi
 
+  # Escape newlines for sed's c command
+  local escaped_content
+  escaped_content=$(echo "$content" | "$SED" 's/$/\\/g' | "$SED" '$ s/\\$//')
+
   # Replace or append block
   if grep -q "$start_marker" "$rc_file"; then
     "$SED" -i --follow-symlinks \
-      "/$start_marker/,/$end_marker/c\\$start_marker\n$warn_msg\n$content\n$end_marker" \
+      "/$start_marker/,/$end_marker/c\\$start_marker\n$warn_msg\n$escaped_content\n$end_marker" \
       "$rc_file"
   else
     {
