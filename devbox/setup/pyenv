@@ -61,6 +61,9 @@ uninstall() {
 
   if [[ "$removed_any" -eq 1 ]]; then
     success "pyenv uninstalled successfully!"
+    if [[ "${SHELL:-}" != "" ]]; then
+      exec "$SHELL"
+    fi
   else
     warning "pyenv is not installed"
     error "Nothing to remove"

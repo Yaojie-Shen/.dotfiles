@@ -1,0 +1,670 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+show_hidden=0
+almost_all=0
+long_format=1
+human_readable=1
+sort_key="name"
+reverse=0
+recursive=0
+jobs_mode="auto"
+jobs_requested=0
+actual_jobs=0
+parallel_tmp_dir=""
+parallel_batch_pids=()
+parallel_batch_files=()
+
+print_usage() {
+    cat <<'EOF'
+Usage: lsmedia [options] [path ...]
+
+List files in an `ls -lh`-style format and append media metadata.
+
+Options:
+  -a            Include hidden files.
+  -A            Include hidden files except '.' and '..'.
+  -0            Disable parallel metadata collection and run serially.
+  -1            Print file paths only. No media metadata is collected.
+  -j N          Use N workers for metadata collection. `-j 0` is serial.
+  -t            Sort by modification time.
+  -S            Sort by file size.
+  -r            Reverse sort order.
+  -R            Recurse into directories.
+  --jobs=N      Use N workers for metadata collection. `0` is serial.
+  --sort=name   Sort by file name.
+  --sort=time   Sort by modification time.
+  --sort=size   Sort by file size.
+  --help        Show this help message.
+
+Concurrency:
+  Default long-format mode uses auto parallelism.
+  Auto worker count is `min(detected CPU count, 8)` and falls back to `4`
+  if CPU detection fails.
+
+  `-0` forces the original serial path in the current shell process.
+  `-j N` and `--jobs=N` override the worker count explicitly.
+  `-j 0` is equivalent to `-0`.
+  `-1` ignores parallel settings because it does not call `mediainfo`.
+
+Defaults:
+  Long format, human-readable sizes, name sort, and auto parallelism.
+EOF
+}
+
+stat_size() {
+    if stat -f "%z" "$1" >/dev/null 2>&1; then
+        stat -f "%z" "$1"
+    else
+        stat -c "%s" "$1"
+    fi
+}
+
+stat_mtime() {
+    if stat -f "%m" "$1" >/dev/null 2>&1; then
+        stat -f "%m" "$1"
+    else
+        stat -c "%Y" "$1"
+    fi
+}
+
+stat_mode() {
+    if stat -f "%Sp" "$1" >/dev/null 2>&1; then
+        stat -f "%Sp" "$1"
+    else
+        stat -c "%A" "$1"
+    fi
+}
+
+is_non_negative_integer() {
+    case "$1" in
+        ''|*[!0-9]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+set_jobs_requested() {
+    local value="$1"
+
+    if ! is_non_negative_integer "$value"; then
+        echo "lsmedia: invalid jobs value '$value'" >&2
+        exit 1
+    fi
+
+    jobs_mode="manual"
+    jobs_requested="$value"
+}
+
+resolve_auto_jobs() {
+    local cpu_count
+
+    cpu_count=""
+    if cpu_count=$(sysctl -n hw.ncpu 2>/dev/null); then
+        :
+    elif cpu_count=$(getconf _NPROCESSORS_ONLN 2>/dev/null); then
+        :
+    else
+        cpu_count=4
+    fi
+
+    if ! is_non_negative_integer "$cpu_count" || [ "$cpu_count" -le 0 ]; then
+        cpu_count=4
+    fi
+
+    if [ "$cpu_count" -gt 8 ]; then
+        cpu_count=8
+    fi
+
+    printf '%s' "$cpu_count"
+}
+
+format_size() {
+    if [ "$human_readable" -eq 0 ]; then
+        printf '%s' "$1"
+        return
+    fi
+
+    awk -v bytes="$1" 'BEGIN {
+        split("B K M G T P E", units, " ")
+        size = bytes + 0
+        unit = 1
+        while (size >= 1024 && unit < 7) {
+            size /= 1024
+            unit++
+        }
+        if (unit == 1) {
+            printf "%.0f%s", size, units[unit]
+        } else if (size >= 10) {
+            printf "%.0f%s", size, units[unit]
+        } else {
+            printf "%.1f%s", size, units[unit]
+        }
+    }'
+}
+
+format_mtime() {
+    local epoch="$1"
+    local now recent_threshold future_threshold diff
+
+    now=$(date +%s)
+    recent_threshold=$((180 * 24 * 60 * 60))
+    future_threshold=$((60 * 60))
+    diff=$((now - epoch))
+
+    if [ "$diff" -ge 0 ] && [ "$diff" -le "$recent_threshold" ]; then
+        if date -r "$epoch" "+%b %e %H:%M" >/dev/null 2>&1; then
+            date -r "$epoch" "+%b %e %H:%M"
+        else
+            date -d "@${epoch}" "+%b %e %H:%M"
+        fi
+        return
+    fi
+
+    if [ "$epoch" -gt $((now + future_threshold)) ]; then
+        if date -r "$epoch" "+%b %e  %Y" >/dev/null 2>&1; then
+            date -r "$epoch" "+%b %e  %Y"
+        else
+            date -d "@${epoch}" "+%b %e  %Y"
+        fi
+        return
+    fi
+
+    if date -r "$epoch" "+%b %e  %Y" >/dev/null 2>&1; then
+        date -r "$epoch" "+%b %e  %Y"
+    else
+        date -d "@${epoch}" "+%b %e  %Y"
+    fi
+}
+
+normalize_field() {
+    local value="$1"
+
+    if [ -n "$value" ]; then
+        printf '%s' "$value"
+    else
+        printf -- '-'
+    fi
+}
+
+build_media_fields() {
+    local kind="$1"
+    local duration="$2"
+    local format="$3"
+    local width="$4"
+    local height="$5"
+    local audio_format="$6"
+    local channels="$7"
+    local sample_rate="$8"
+    local resolution=""
+    local duration_field="-"
+    local resolution_field="-"
+    local video_field="-"
+    local audio_field="-"
+    local channels_field="-"
+    local sample_rate_field="-"
+
+    if [ -n "$width" ] && [ -n "$height" ]; then
+        resolution="${width}x${height}"
+    fi
+
+    case "$kind" in
+        video)
+            duration_field=$(normalize_field "$duration")
+            resolution_field=$(normalize_field "$resolution")
+            video_field=$(normalize_field "$format")
+            audio_field=$(normalize_field "$audio_format")
+            if [ -n "$channels" ]; then
+                channels_field=$(normalize_field "${channels} ch")
+            fi
+            sample_rate_field=$(normalize_field "$sample_rate")
+            ;;
+        audio)
+            duration_field=$(normalize_field "$duration")
+            audio_field=$(normalize_field "$audio_format")
+            if [ -n "$channels" ]; then
+                channels_field=$(normalize_field "${channels} ch")
+            fi
+            sample_rate_field=$(normalize_field "$sample_rate")
+            ;;
+        image)
+            resolution_field=$(normalize_field "$resolution")
+            video_field=$(normalize_field "$format")
+            ;;
+        *)
+            duration_field=$(normalize_field "$duration")
+            video_field=$(normalize_field "$format")
+            ;;
+    esac
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s' \
+        "$duration_field" "$resolution_field" "$video_field" "$audio_field" "$channels_field" "$sample_rate_field"
+}
+
+should_include_name() {
+    local name="$1"
+
+    case "$name" in
+        .|..)
+            [ "$show_hidden" -eq 1 ] || [ "$almost_all" -eq 1 ]
+            return
+            ;;
+        .*)
+            [ "$show_hidden" -eq 1 ] || [ "$almost_all" -eq 1 ]
+            return
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+collect_file_record() {
+    local file="$1"
+    local name general_raw video_raw audio_raw image_raw
+    local video_count audio_count image_count duration general_format
+    local video_width video_height video_format audio_format channels sample_rate image_width image_height image_format
+    local size_bytes mtime_epoch mode size_display mtime_display kind media_fields format width height
+
+    [ -f "$file" ] || return 0
+
+    name="${file##*/}"
+    should_include_name "$name" || return 0
+
+    # Short mode intentionally skips mediainfo and only emits sortable file records.
+    if [ "$long_format" -eq 0 ]; then
+        size_bytes=$(stat_size "$file")
+        mtime_epoch=$(stat_mtime "$file")
+        mode=$(stat_mode "$file")
+        size_display=$(format_size "$size_bytes")
+        mtime_display=$(format_mtime "$mtime_epoch")
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$size_bytes" "$mtime_epoch" "$mode" "$size_display" "$mtime_display" "-" "-" "-" "-" "-" "-" "-" "$file"
+        return 0
+    fi
+
+    general_raw=$(mediainfo --Inform="General;%VideoCount%|%AudioCount%|%ImageCount%|%Duration/String3%|%Format%" "$file" 2>/dev/null || true)
+    video_raw=$(mediainfo --Inform="Video;%Width%|%Height%|%Format%" "$file" 2>/dev/null || true)
+    audio_raw=$(mediainfo --Inform="Audio;%Format%|%Channel(s)%|%SamplingRate/String%" "$file" 2>/dev/null || true)
+    image_raw=$(mediainfo --Inform="Image;%Width%|%Height%|%Format%" "$file" 2>/dev/null || true)
+
+    IFS='|' read -r video_count audio_count image_count duration general_format <<EOF
+$general_raw
+EOF
+    IFS='|' read -r video_width video_height video_format <<EOF
+$video_raw
+EOF
+    IFS='|' read -r audio_format channels sample_rate <<EOF
+$audio_raw
+EOF
+    IFS='|' read -r image_width image_height image_format <<EOF
+$image_raw
+EOF
+
+    video_count=${video_count:-0}
+    audio_count=${audio_count:-0}
+    image_count=${image_count:-0}
+
+    kind=""
+    if [ "$video_count" != "0" ] 2>/dev/null; then
+        kind="video"
+        format="$video_format"
+        width="$video_width"
+        height="$video_height"
+    elif [ "$audio_count" != "0" ] 2>/dev/null; then
+        kind="audio"
+        format="$audio_format"
+        width=""
+        height=""
+    elif [ "$image_count" != "0" ] 2>/dev/null; then
+        kind="image"
+        format="$image_format"
+        width="$image_width"
+        height="$image_height"
+    elif [ -n "$image_width" ] && [ -n "$image_height" ] && [ -z "$duration" ]; then
+        kind="image"
+        format="$image_format"
+        width="$image_width"
+        height="$image_height"
+    else
+        kind="other"
+        format="$general_format"
+        width=""
+        height=""
+    fi
+
+    size_bytes=$(stat_size "$file")
+    mtime_epoch=$(stat_mtime "$file")
+    mode=$(stat_mode "$file")
+    size_display=$(format_size "$size_bytes")
+    mtime_display=$(format_mtime "$mtime_epoch")
+    if [ -z "$format" ]; then
+        format="$general_format"
+    fi
+
+    media_fields=$(build_media_fields "$kind" "$duration" "$format" "$width" "$height" "$audio_format" "$channels" "$sample_rate")
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$size_bytes" "$mtime_epoch" "$mode" "$size_display" "$mtime_display" "$kind" "$media_fields" "$file"
+}
+
+enumerate_target_files() {
+    local target="$1"
+
+    if [ "$recursive" -eq 1 ]; then
+        find "$target" -type f -print0
+    else
+        find "$target" -mindepth 1 -maxdepth 1 -type f -print0
+    fi
+}
+
+reset_parallel_batch() {
+    parallel_batch_pids=()
+    parallel_batch_files=()
+}
+
+flush_parallel_batch() {
+    local batch_status=0
+    local pid tmp_file
+
+    if [ "${parallel_batch_pids[0]+set}" != "set" ]; then
+        reset_parallel_batch
+        return 0
+    fi
+
+    # Wait for the current batch, then merge worker output in submission order.
+    for pid in "${parallel_batch_pids[@]}"; do
+        if ! wait "$pid"; then
+            batch_status=1
+        fi
+    done
+
+    for tmp_file in "${parallel_batch_files[@]}"; do
+        if [ -f "$tmp_file" ]; then
+            cat "$tmp_file"
+            rm -f "$tmp_file"
+        fi
+    done
+
+    reset_parallel_batch
+    return "$batch_status"
+}
+
+queue_parallel_file() {
+    local file="$1"
+    local tmp_file
+
+    # Each worker writes to its own temp file to avoid concurrent appends.
+    tmp_file=$(mktemp "${parallel_tmp_dir}/record.XXXXXX")
+    parallel_batch_files+=("$tmp_file")
+
+    (
+        collect_file_record "$file" > "$tmp_file"
+    ) &
+    parallel_batch_pids+=("$!")
+
+    if [ "${#parallel_batch_pids[@]}" -ge "$actual_jobs" ]; then
+        flush_parallel_batch
+    fi
+}
+
+collect_target_serial() {
+    local target="$1"
+
+    if [ -f "$target" ]; then
+        collect_file_record "$target"
+        return
+    fi
+
+    if [ ! -d "$target" ]; then
+        echo "lsmedia: cannot access '$target'" >&2
+        return 1
+    fi
+
+    while IFS= read -r -d '' file; do
+        collect_file_record "$file"
+    done < <(enumerate_target_files "$target")
+}
+
+collect_target_parallel() {
+    local target="$1"
+    local target_status=0
+    local file
+
+    reset_parallel_batch
+
+    if [ -f "$target" ]; then
+        if ! queue_parallel_file "$target"; then
+            target_status=1
+        fi
+    elif [ ! -d "$target" ]; then
+        echo "lsmedia: cannot access '$target'" >&2
+        return 1
+    else
+        while IFS= read -r -d '' file; do
+            if ! queue_parallel_file "$file"; then
+                target_status=1
+            fi
+        done < <(enumerate_target_files "$target")
+    fi
+
+    if ! flush_parallel_batch; then
+        target_status=1
+    fi
+
+    return "$target_status"
+}
+
+sort_records() {
+    local input_file="$1"
+
+    case "$sort_key" in
+        size)
+            if [ "$reverse" -eq 1 ]; then
+                sort -t $'\t' -k1,1n "$input_file"
+            else
+                sort -t $'\t' -k1,1nr "$input_file"
+            fi
+            ;;
+        time)
+            if [ "$reverse" -eq 1 ]; then
+                sort -t $'\t' -k2,2n "$input_file"
+            else
+                sort -t $'\t' -k2,2nr "$input_file"
+            fi
+            ;;
+        name)
+            if [ "$reverse" -eq 1 ]; then
+                sort -t $'\t' -k13,13fr "$input_file"
+            else
+                sort -t $'\t' -k13,13f "$input_file"
+            fi
+            ;;
+        *)
+            cat "$input_file"
+            ;;
+    esac
+}
+
+print_records() {
+    local sorted_file="$1"
+    local mode_width=0 size_width=0 kind_width=0 duration_width=0 resolution_width=0 video_width=0 audio_width=0 channels_width=0 sample_rate_width=0
+    local _size_bytes _mtime_epoch mode size_display _mtime_display kind duration resolution video audio channels sample_rate _path
+
+    if [ ! -s "$sorted_file" ]; then
+        return
+    fi
+
+    if [ "$long_format" -eq 0 ]; then
+        while IFS=$'\t' read -r _size_bytes _mtime_epoch mode size_display _mtime_display kind duration resolution video audio channels sample_rate _path; do
+            printf '%s\n' "$_path"
+        done < "$sorted_file"
+        return
+    fi
+
+    while IFS=$'\t' read -r _size_bytes _mtime_epoch mode size_display _mtime_display kind duration resolution video audio channels sample_rate _path; do
+        [ ${#mode} -gt "$mode_width" ] && mode_width=${#mode}
+        [ ${#size_display} -gt "$size_width" ] && size_width=${#size_display}
+        [ ${#kind} -gt "$kind_width" ] && kind_width=${#kind}
+        [ ${#duration} -gt "$duration_width" ] && duration_width=${#duration}
+        [ ${#resolution} -gt "$resolution_width" ] && resolution_width=${#resolution}
+        [ ${#video} -gt "$video_width" ] && video_width=${#video}
+        [ ${#audio} -gt "$audio_width" ] && audio_width=${#audio}
+        [ ${#channels} -gt "$channels_width" ] && channels_width=${#channels}
+        [ ${#sample_rate} -gt "$sample_rate_width" ] && sample_rate_width=${#sample_rate}
+    done < "$sorted_file"
+
+    while IFS=$'\t' read -r _size_bytes _mtime_epoch mode size_display _mtime_display kind duration resolution video audio channels sample_rate _path; do
+        printf "%-${mode_width}s  %${size_width}s  %s  %-${kind_width}s  %-${duration_width}s  %-${resolution_width}s  %-${video_width}s  %-${audio_width}s  %-${channels_width}s  %-${sample_rate_width}s  %s\n" \
+            "$mode" "$size_display" "$_mtime_display" "$kind" "$duration" "$resolution" "$video" "$audio" "$channels" "$sample_rate" "$_path"
+    done < "$sorted_file"
+}
+
+paths=()
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --help)
+            print_usage
+            exit 0
+            ;;
+        --jobs)
+            if [ "$#" -lt 2 ]; then
+                echo "lsmedia: option '--jobs' requires an argument" >&2
+                exit 1
+            fi
+            shift
+            set_jobs_requested "$1"
+            ;;
+        --jobs=*)
+            set_jobs_requested "${1#--jobs=}"
+            ;;
+        --sort=name)
+            sort_key="name"
+            ;;
+        --sort=time)
+            sort_key="time"
+            ;;
+        --sort=size)
+            sort_key="size"
+            ;;
+        --)
+            shift
+            while [ "$#" -gt 0 ]; do
+                paths+=("$1")
+                shift
+            done
+            break
+            ;;
+        -*)
+            opt="${1#-}"
+            i=1
+            while [ "$i" -le "${#opt}" ]; do
+                flag="${opt:$((i-1)):1}"
+                case "$flag" in
+                    0)
+                        set_jobs_requested 0
+                        ;;
+                    a)
+                        show_hidden=1
+                        almost_all=0
+                        ;;
+                    A)
+                        almost_all=1
+                        ;;
+                    1)
+                        long_format=0
+                        ;;
+                    j)
+                        job_value="${opt:$i}"
+                        if [ -z "$job_value" ]; then
+                            if [ "$#" -lt 2 ]; then
+                                echo "lsmedia: option '-j' requires an argument" >&2
+                                exit 1
+                            fi
+                            shift
+                            job_value="$1"
+                        fi
+                        set_jobs_requested "$job_value"
+                        i=${#opt}
+                        ;;
+                    t)
+                        sort_key="time"
+                        ;;
+                    S)
+                        sort_key="size"
+                        ;;
+                    r)
+                        reverse=1
+                        ;;
+                    R)
+                        recursive=1
+                        ;;
+                    *)
+                        echo "lsmedia: unsupported option -- $flag" >&2
+                        print_usage >&2
+                        exit 1
+                        ;;
+                esac
+                i=$((i + 1))
+            done
+            ;;
+        *)
+            paths+=("$1")
+            ;;
+    esac
+    shift
+done
+
+if [ "${#paths[@]}" -eq 0 ]; then
+    paths=(".")
+fi
+
+if [ "$long_format" -eq 0 ]; then
+    actual_jobs=0
+elif [ "$jobs_mode" = "manual" ]; then
+    actual_jobs="$jobs_requested"
+else
+    actual_jobs=$(resolve_auto_jobs)
+fi
+
+if [ "$long_format" -eq 1 ] && ! command -v mediainfo >/dev/null 2>&1; then
+    echo "Error: mediainfo is required unless '-1' is used" >&2
+    exit 1
+fi
+
+records_file=$(mktemp)
+sorted_file=$(mktemp)
+parallel_tmp_dir=$(mktemp -d)
+status=0
+
+cleanup() {
+    rm -f "$records_file" "$sorted_file"
+    if [ -n "$parallel_tmp_dir" ]; then
+        rm -rf "$parallel_tmp_dir"
+    fi
+}
+
+trap cleanup EXIT
+
+for target in "${paths[@]}"; do
+    if [ "$long_format" -eq 0 ] || [ "$actual_jobs" -le 1 ]; then
+        collector="collect_target_serial"
+    else
+        collector="collect_target_parallel"
+    fi
+
+    if ! "$collector" "$target" >> "$records_file"; then
+        status=1
+    fi
+done
+
+sort_records "$records_file" > "$sorted_file"
+print_records "$sorted_file"
+
+exit "$status"
