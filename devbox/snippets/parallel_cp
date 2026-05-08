@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
-#
-# Parallel Copy: Copy directory contents using parallel processing.
-# Compatible with MacOS and Linux.
-#
-# ${1} Name: Source Directory
-# ${1} Description: Directory to copy files from
-# ${1} Type: PATH
-# ${2} Name: Destination Directory
-# ${2} Description: Directory to copy files to
-# ${2} Type: PATH
-# ${3} Name: Parallel Jobs
-# ${3} Description: Number of parallel copy jobs
-# ${3} Default: 16
 
-set -e
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+usage: $(basename "$0") <source_dir> <target_dir> [parallel_jobs]
+
+Copy the first-level entries under <source_dir> into <target_dir>.
+Uses GNU parallel when available; otherwise falls back to xargs.
+
+options:
+  -h, --help  Show this help message and exit
+
+Arguments:
+  source_dir      Source directory
+  target_dir      Destination directory
+  parallel_jobs   Number of parallel jobs (default: 16)
+
+examples:
+  $(basename "$0") /data/src /data/dst
+  $(basename "$0") /data/src /data/dst 32
+EOF
+  exit 0
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+fi
 
 # Check for minimum required arguments
 if [ "$#" -lt 2 ]; then
-  echo "Usage: $0 <source_dir> <target_dir> [parallel_jobs]"
-  exit 1
+  usage >&2
 fi
 
 SRC_DIR="$1"

@@ -18,7 +18,13 @@ import os
 from multiprocessing import Process, Lock, Event, Value
 from typing import Optional, List
 
-import torch
+TORCH_AVAILABLE = True
+try:
+    import torch  # type: ignore
+except ModuleNotFoundError:
+    # Allow `-h/--help` to work even when torch isn't installed.
+    # The script will fail fast (with a clear message) when actually started.
+    TORCH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -59,21 +65,21 @@ class GPUWorker:
         gc.collect()
         torch.cuda.empty_cache()
 
-    @torch.no_grad()
     def _run(self):
-        while True:
-            if self.is_enabled():
-                self.net(self.inputs)
-                # throttle loop by sleeping configurable interval
-                try:
-                    si = float(self._sleep_interval.value)
-                except Exception:
-                    si = 0.0
-                if si > 0:
-                    # interpret sleep interval as milliseconds
-                    time.sleep(si / 1000.0)
-            else:
-                self.clean()
+        with torch.no_grad():
+            while True:
+                if self.is_enabled():
+                    self.net(self.inputs)
+                    # throttle loop by sleeping configurable interval
+                    try:
+                        si = float(self._sleep_interval.value)
+                    except Exception:
+                        si = 0.0
+                    if si > 0:
+                        # interpret sleep interval as milliseconds
+                        time.sleep(si / 1000.0)
+                else:
+                    self.clean()
 
     def enable(self):
         with self.control_lock:
@@ -770,11 +776,28 @@ class Housekeeper:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Runs lightweight GPU workers and exposes control endpoints (socket/file).\n"
+            "Use 'housekeeper_ctl' to pause/enable/disable/monitor the workers.\n"
+        ),
+        epilog=(
+            "examples:\n"
+            "  housekeeper --ui none\n"
+            "  housekeeper --ui ansi\n"
+            "  housekeeper_ctl pause 600\n"
+            "  housekeeper_ctl monitor --ui ansi\n"
+        ),
+    )
     parser.add_argument("--control_file", default="/tmp/housekeeper_ctl", type=str, help="control file for pause fallback")
     parser.add_argument("--control_socket", default="/tmp/housekeeper_ctl.sock", type=str, help="unix socket for control")
     parser.add_argument("--ui", choices=["line", "ansi", "none"], default="none", help="UI mode: line|ansi|none (no UI output)")
     args = parser.parse_args()
+
+    if not TORCH_AVAILABLE:
+        raise SystemExit("Error: torch is required to run housekeeper (pip install torch)")
+
     housekeeper = Housekeeper(devices=list(range(torch.cuda.device_count())), pause_file=args.control_file,
                               control_socket=args.control_socket, ui_mode=args.ui)
     housekeeper.start()

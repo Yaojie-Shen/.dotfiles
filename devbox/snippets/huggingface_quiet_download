@@ -3,9 +3,29 @@
 autoload -Uz colors
 colors
 
+typeset SCRIPT_NAME="${0:t}"
+
 typeset TMPFILE="/tmp/huggingface-quiet-download-$$$RANDOM"
 typeset ERROR_FILE="/tmp/huggingface-quiet-download-$$$RANDOM"
 typeset -i error_count=0
+
+usage() {
+  cat <<EOF
+usage: ${SCRIPT_NAME} [options] <model_1> [model_2 ...]
+
+Download HuggingFace models via:
+  huggingface-cli download <model>
+Shows a quiet spinner UI and prints logs only on error.
+
+options:
+  -h, --help  Show this help message and exit
+
+examples:
+  ${SCRIPT_NAME} openai/clip-vit-base-patch32
+  ${SCRIPT_NAME} meta-llama/Llama-3.1-8B-Instruct Qwen/Qwen2.5-7B-Instruct
+EOF
+  exit 0
+}
 
 spin() {
   local \
@@ -109,8 +129,12 @@ download_model() {
 }
 
 # Check if at least one model is provided as input
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+fi
+
 if [ $# -lt 1 ]; then
-  printf "$fg[red]Usage: huggingface_quiet_download <model_1> <model_2> ... <model_n>$reset_color\n"
+  usage >&2
   exit 1
 fi
 

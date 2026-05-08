@@ -517,7 +517,20 @@ Host {name}
 
 def main():
     try:
-        parser = argparse.ArgumentParser(description="SSH Config Manager")
+        parser = argparse.ArgumentParser(
+            formatter_class=argparse.RawTextHelpFormatter,
+            description=(
+                "Manage ~/.ssh/config entries wrapped by markers.\n"
+                "Supports add/remove/update/list and interactive prompts when args are omitted.\n"
+            ),
+            epilog=(
+                "examples:\n"
+                "  ssh_manager add work user host.example.com --port 22\n"
+                "  ssh_manager list\n"
+                "  ssh_manager remove work\n"
+                "  ssh_manager update work --port 2222\n"
+            ),
+        )
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
         # Add command

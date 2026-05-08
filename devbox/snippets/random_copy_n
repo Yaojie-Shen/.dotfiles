@@ -16,16 +16,27 @@ def log(msg):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Randomly copy N files from src to dst with optional filtering. Useful for sampling from large datasets."
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Randomly copy N files from src to dst.\n"
+            "Supports glob/regex filtering; useful for sampling from large datasets.\n"
+        ),
+        epilog=(
+            "examples:\n"
+            "  random_copy_n ./src ./dst -n 100\n"
+            "  random_copy_n ./src ./dst -n 100 --pattern '*.jpg'\n"
+            "  random_copy_n ./src ./dst -n 100 --regex '.*\\.png$'\n"
+            "  random_copy_n ./src ./dst -n 100 --dry-run\n"
+        ),
     )
     parser.add_argument("src")
     parser.add_argument("dst")
-    parser.add_argument("-n", type=int, required=True)
+    parser.add_argument("-n", type=int, required=True, help="Number of files to copy")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--pattern", type=str, default="*", help="Glob pattern filter. Default: *")
     parser.add_argument("--regex", type=str, default=None,
                         help="Regex pattern filter. Higher priority than glob pattern. If provided, overrides glob pattern.")
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Print planned operations without copying")
 
     args = parser.parse_args()
 

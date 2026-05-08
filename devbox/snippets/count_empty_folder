@@ -107,7 +107,17 @@ def wait_for_some(futures_dict):
 
 if __name__ == "__main__":
     try:
-        parser = argparse.ArgumentParser(description="Scan immediate subdirectories for emptiness.")
+        parser = argparse.ArgumentParser(
+            formatter_class=argparse.RawTextHelpFormatter,
+            description=(
+                "Scan immediate subdirectories under the given path and count empty directories.\n"
+            ),
+            epilog=(
+                "examples:\n"
+                "  count_empty_folder /data\n"
+                "  count_empty_folder /data --verbose\n"
+            ),
+        )
         parser.add_argument("path", help="Root path to scan")
         parser.add_argument("-v", "--verbose", action="store_true",
                             help="Enable verbose output to list all empty directories.")

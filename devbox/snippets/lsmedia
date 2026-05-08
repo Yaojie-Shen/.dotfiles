@@ -17,38 +17,41 @@ parallel_batch_pids=()
 parallel_batch_files=()
 
 print_usage() {
-    cat <<'EOF'
-Usage: lsmedia [options] [path ...]
+    local cmd
+    cmd="$(basename "$0")"
 
-List files in an `ls -lh`-style format and append media metadata.
+    cat <<EOF
+usage: ${cmd} [options] [path ...]
 
-Options:
+List files in an 'ls -lh'-style format and append media metadata.
+
+options:
   -a            Include hidden files.
   -A            Include hidden files except '.' and '..'.
   -0            Disable parallel metadata collection and run serially.
   -1            Print file paths only. No media metadata is collected.
-  -j N          Use N workers for metadata collection. `-j 0` is serial.
+  -j N          Use N workers for metadata collection. '-j 0' is serial.
   -t            Sort by modification time.
   -S            Sort by file size.
   -r            Reverse sort order.
   -R            Recurse into directories.
-  --jobs=N      Use N workers for metadata collection. `0` is serial.
+  --jobs=N      Use N workers for metadata collection. '0' is serial.
   --sort=name   Sort by file name.
   --sort=time   Sort by modification time.
   --sort=size   Sort by file size.
-  --help        Show this help message.
+  --help        Show this help message and exit.
 
-Concurrency:
+notes:
   Default long-format mode uses auto parallelism.
-  Auto worker count is `min(detected CPU count, 8)` and falls back to `4`
+  Auto worker count is min(detected CPU count, 8) and falls back to 4
   if CPU detection fails.
 
-  `-0` forces the original serial path in the current shell process.
-  `-j N` and `--jobs=N` override the worker count explicitly.
-  `-j 0` is equivalent to `-0`.
-  `-1` ignores parallel settings because it does not call `mediainfo`.
+  '-0' forces the original serial path in the current shell process.
+  '-j N' and '--jobs=N' override the worker count explicitly.
+  '-j 0' is equivalent to '-0'.
+  '-1' ignores parallel settings because it does not call mediainfo.
 
-Defaults:
+defaults:
   Long format, human-readable sizes, name sort, and auto parallelism.
 EOF
 }

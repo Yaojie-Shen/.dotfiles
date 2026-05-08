@@ -11,32 +11,27 @@ SLEEP=""
 
 print_help() {
   cat <<EOF
-housekeeper_ctl — control commands for housekeeper
+usage: $(basename "$0") <command> [args] [options]
 
-Usage:
-  $(basename "$0") <command> [args] [OPTIONS]
-  $(basename "$0") enable [OPTIONS]
-  $(basename "$0") disable [OPTIONS]
-  $(basename "$0") auto [OPTIONS]
-  $(basename "$0") monitor [--ui ansi|line] [OPTIONS]
-  $(basename "$0") sleep [MILLISECONDS] [OPTIONS]
+Send control commands to a running housekeeper instance.
+Communicates via a unix datagram socket (preferred) and can fall back to a control file.
 
-  Commands:
-  pause [SECONDS]   Pause workers for SECONDS (default: $TIME)
-  enable            Enable workers immediately
-  disable           Disable workers immediately
-  auto              Switch to auto mode (status controller)
-  monitor           Subscribe and display live status
-  sleep [MILLISECONDS] Set worker sleep interval after each forward (0-60000ms)
+commands:
+  pause [SECONDS]        Pause workers for SECONDS (default: $TIME)
+  enable                 Enable workers immediately
+  disable                Disable workers immediately
+  auto                   Switch to auto mode (status controller)
+  monitor                Subscribe and display live status
+  sleep [MILLISECONDS]   Set worker sleep interval after each forward (0-60000ms)
 
-Options:
+options:
   -s, --socket PATH        Unix socket path (default: $SOCK)
   -f, --file PATH          Control file for 'pause' fallback (default: $CONTROL_FILE)
       --control-file PATH  Same as --file
   -u, --ui MODE            UI for monitor: ansi|line (default: $UI)
-  -h, --help           Show this help and exit
+  -h, --help               Show this help message and exit
 
-Examples:
+examples:
   $(basename "$0") pause 600 -s /tmp/keep.sock
   $(basename "$0") enable
   $(basename "$0") disable

@@ -3,21 +3,20 @@
 set -euo pipefail
 
 show_help() {
-cat <<EOF
-sanitize_filename - normalize a string into a safe filename
+  cat <<EOF
+usage: $(basename "$0") <string>
 
-Usage:
-  sanitize_filename STRING
-  sanitize_filename -h | --help
+Convert <string> to lowercase, replace non-alphanumeric characters with '_',
+and trim leading/trailing '_' characters.
 
-Description:
-  Converts STRING to lowercase and replaces non-alphanumeric
-  characters with "_". Leading and trailing "_" are removed.
+options:
+  -h, --help  Show this help message and exit
 
-Example:
-  sanitize_filename "Hello World!"
-  -> hello_world
+examples:
+  $(basename "$0") "Hello World!"
+  # -> hello_world
 EOF
+  exit 0
 }
 
 sanitize_filename() {
@@ -29,7 +28,6 @@ sanitize_filename() {
 case "${1:-}" in
     -h|--help|"")
         show_help
-        exit 0
         ;;
 esac
 
