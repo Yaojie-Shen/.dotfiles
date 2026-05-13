@@ -2,8 +2,6 @@
 
 set -Eeuo pipefail
 
-source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
-
 ACTION="install"
 TUNNEL_NAME=""
 PROVIDER="github"
@@ -15,6 +13,15 @@ BIN_NAME="code-tunnel"
 OS_OVERRIDE=""
 URL_OVERRIDE=""
 INSECURE=0
+
+DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT:-${HOME}/.devbox}/libexec/devbox-utils}"
+if [[ ! -f "$DEVBOX_UTILS" ]]; then
+  echo "Error: devbox-utils not found at: $DEVBOX_UTILS" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$DEVBOX_UTILS"
 
 usage() {
   cat <<EOF

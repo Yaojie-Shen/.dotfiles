@@ -65,6 +65,8 @@ else
 fi
 export DEVBOX_ROOT
 
+export DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT}/libexec/devbox-utils}"
+
 if [ -z "${DEVBOX_DIR}" ]; then
   DEVBOX_DIR="$PWD"
 fi

@@ -74,8 +74,8 @@ function main() {
     ;;
   "print")
     init_dirs
-    print_path
     print_env
+    print_path
     print_completion
     print_rehash
     print_shell_function
@@ -164,6 +164,8 @@ function help_() {
       fi
       echo
       echo 'export DEVBOX_ROOT="$HOME/.devbox"'
+      echo 'export DEVBOX_CUSTOM_ROOT="${DEVBOX_CUSTOM_ROOT:-$HOME/.persistent/custom/devbox}"'
+      echo 'export DEVBOX_UTILS="${DEVBOX_UTILS:-$DEVBOX_ROOT/libexec/devbox-utils}"'
       echo '[[ -d $DEVBOX_ROOT/bin ]] && export PATH="$DEVBOX_ROOT/bin:$PATH"'
       echo 'eval "$(devbox init -)"'
       ;;
@@ -211,7 +213,7 @@ function print_path() {
       # --norc negates this behavior of such a customized Bash.
       echo 'PATH="$(bash --norc -ec '\''IFS=:; paths=($PATH); '
       echo 'for i in ${!paths[@]}; do '
-      echo 'if [[ ${paths[i]} == "'\'\'"${DEVBOX_ROOT}/snippets"\'\''" ]]; then unset '\'\\\'\''paths[i]'\'\\\'\''; '
+      echo 'if [[ ${paths[i]} == "'\'\'"${DEVBOX_ROOT}/snippets"\'\''" || ${paths[i]} == "'\'\'"${DEVBOX_CUSTOM_ROOT}/snippets"\'\''" ]]; then unset '\'\\\'\''paths[i]'\'\\\'\''; '
       echo 'fi; done; '
       echo 'echo "${paths[*]}"'\'')"'
       print_path_prepend_snippets
@@ -223,10 +225,18 @@ function print_path() {
 function print_path_prepend_snippets() {
   case "$shell" in
   fish)
+    custom_root="${DEVBOX_CUSTOM_ROOT:-${HOME}/.persistent/custom/devbox}"
     echo 'set -gx PATH '\'"${DEVBOX_ROOT}/snippets"\'' $PATH'
+    echo 'if test -d '\'"${custom_root}/snippets"\'''
+    echo 'set -gx PATH '\'"${custom_root}/snippets"\'' $PATH'
+    echo 'end'
     ;;
   *)
+    echo 'if [[ -d "${DEVBOX_CUSTOM_ROOT}/snippets" ]]; then'
+    echo 'export PATH="'"${DEVBOX_ROOT}"'/snippets:${DEVBOX_CUSTOM_ROOT}/snippets:${PATH}"'
+    echo 'else'
     echo 'export PATH="'"${DEVBOX_ROOT}"'/snippets:${PATH}"'
+    echo 'fi'
     ;;
   esac
 }
@@ -234,9 +244,17 @@ function print_path_prepend_snippets() {
 function print_env() {
   case "$shell" in
   fish)
+    echo 'if not set -q DEVBOX_CUSTOM_ROOT'
+    echo "set -gx DEVBOX_CUSTOM_ROOT \"${HOME}/.persistent/custom/devbox\""
+    echo 'end'
+    echo 'if not set -q DEVBOX_UTILS'
+    echo "set -gx DEVBOX_UTILS \"${DEVBOX_ROOT}/libexec/devbox-utils\""
+    echo 'end'
     echo "set -gx DEVBOX_SHELL $shell"
     ;;
   *)
+    echo "export DEVBOX_CUSTOM_ROOT=\"\${DEVBOX_CUSTOM_ROOT:-${HOME}/.persistent/custom/devbox}\""
+    echo 'export DEVBOX_UTILS="${DEVBOX_UTILS:-$DEVBOX_ROOT/libexec/devbox-utils}"'
     echo "export DEVBOX_SHELL=$shell"
     ;;
   esac

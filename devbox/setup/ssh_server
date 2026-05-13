@@ -1,6 +1,14 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
+set -Eeuo pipefail
+
+DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT:-${HOME}/.devbox}/libexec/devbox-utils}"
+if [[ ! -f "$DEVBOX_UTILS" ]]; then
+  echo "Error: devbox-utils not found at: $DEVBOX_UTILS" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DEVBOX_UTILS"
 
 setup_ssh() {
   local PORT="$1"

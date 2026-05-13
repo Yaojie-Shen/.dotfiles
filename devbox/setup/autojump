@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 
 set -Eeuo pipefail
-# trap 'error "Command failed at line $LINENO"' ERR # Debug
-
-source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
 inserted_start="# >>> autojump initialize >>>"
 inserted_end="# <<< autojump initialize <<<"
+
+DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT:-${HOME}/.devbox}/libexec/devbox-utils}"
+if [[ ! -f "$DEVBOX_UTILS" ]]; then
+  echo "Error: devbox-utils not found at: $DEVBOX_UTILS" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DEVBOX_UTILS"
 
 install_autojump() {
   git clone https://github.com/wting/autojump.git

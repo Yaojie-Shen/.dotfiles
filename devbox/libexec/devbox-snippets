@@ -12,19 +12,62 @@ set -e
 snippet_dir="${DEVBOX_ROOT}/snippets"
 
 if [ -d "$snippet_dir" ]; then
-  snippet_dir="$(realpath "$snippet_dir")"
+  snippet_dir="$(cd "$snippet_dir" && pwd -P)"
 fi
+
+snippet_dirs=()
+custom_root="${DEVBOX_CUSTOM_ROOT:-${HOME}/.persistent/custom/devbox}"
+custom_root="${custom_root%/}"
+snippets_path="${DEVBOX_SNIPPETS_PATH:-${DEVBOX_ROOT}/snippets:${custom_root}/snippets}"
+
+IFS=: read -r -a snippet_candidates <<<"$snippets_path"
+for discovered_snippet_dir in "${snippet_candidates[@]}"; do
+  [[ -d "$discovered_snippet_dir" ]] || continue
+  discovered_snippet_dir="$(cd "$discovered_snippet_dir" && pwd -P)"
+  snippet_dir_seen=0
+  for existing_snippet_dir in "${snippet_dirs[@]}"; do
+    if [[ "$existing_snippet_dir" == "$discovered_snippet_dir" ]]; then
+      snippet_dir_seen=1
+      break
+    fi
+  done
+  if [[ "$snippet_dir_seen" -eq 0 ]]; then
+    snippet_dirs+=("$discovered_snippet_dir")
+  fi
+done
+
+has_snippet_name() {
+  local name="$1"
+  local existing
+  for existing in "${snippet_names[@]}"; do
+    if [[ "$existing" == "$name" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 # Discover snippets
 shopt -s dotglob nullglob
-snippet_path=("${snippet_dir}"/*)
+snippet_names=()
+snippet_paths=()
+for discovered_snippet_dir in "${snippet_dirs[@]}"; do
+  for snippet_path in "${discovered_snippet_dir}"/*; do
+    [[ -f "$snippet_path" ]] || continue
+    snippet_name="${snippet_path##*/}"
+    if ! has_snippet_name "$snippet_name"; then
+      snippet_names+=("$snippet_name")
+      snippet_paths+=("$snippet_path")
+    fi
+  done
+done
 shopt -u dotglob nullglob
 
 # Provide devbox completions
-if [ $1 = '--complete' ]; then
-  case $2 in
-  -*)
-    ls
+if [ "${1:-}" = '--complete' ]; then
+  case "${2:-}" in
+  --remove | -r | --edit | -e)
+    printf "%s\n" "${snippet_names[@]}"
     ;;
   *)
     echo "--add"
@@ -83,14 +126,10 @@ edit_snippet() {
 
 case "$1" in
 --list | -l)
-  echo "Snippet directory: ${snippet_dir}"
+  echo "Snippet directories:"
+  printf " - %s\n" "${snippet_dirs[@]}"
   echo "Available snippets: "
-  #    printf " - %s\n" "${snippets[@]}"
-  for path in "${snippet_path[@]}"; do
-    if [ -f "$path" ]; then
-      printf " - %s\n" "${path##*/}"
-    fi
-  done
+  printf " - %s\n" "${snippet_names[@]}"
   exit
   ;;
 --add | -a)

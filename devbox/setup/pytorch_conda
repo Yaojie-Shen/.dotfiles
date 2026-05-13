@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 
+DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT:-${HOME}/.devbox}/libexec/devbox-utils}"
+if [[ ! -f "$DEVBOX_UTILS" ]]; then
+  echo "Error: devbox-utils not found at: $DEVBOX_UTILS" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DEVBOX_UTILS"
+
 # Accept all term of services
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
-
 
 # Define PyTorch versions, torchvision, torchaudio, and corresponding CUDA versions
 declare -A TORCH_CONFIGS
@@ -25,8 +32,6 @@ TORCH_CONFIGS["1.13.1"]="0.14.1:1.13.1 11.6 11.7 cpuonly"
 TORCH_CONFIGS["1.13.0"]="0.14.0:1.13.0 11.6 11.7 cpuonly"
 TORCH_CONFIGS["1.12.1"]="0.13.1:1.12.1 10.2 11.3 11.6 cpuonly"
 TORCH_CONFIGS["1.12.0"]="0.13.0:1.12.0 10.2 11.3 11.6 cpuonly"
-
-source "${BASH_SOURCE%/*}/../libexec/devbox-utils"
 
 # Display available PyTorch versions with numbered options, sorted by version
 info "Available PyTorch versions:"
