@@ -44,3 +44,5 @@ vim.opt.fillchars:append { diff = "╱" }
 
 -- Use vertical bar cursor in terminal-insert mode
 vim.opt.guicursor:append("t:ver25")
+
+vim.opt.termguicolors = true
