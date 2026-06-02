@@ -23,10 +23,10 @@ def main():
         ),
         epilog=(
             "examples:\n"
-            "  random_copy_n ./src ./dst -n 100\n"
-            "  random_copy_n ./src ./dst -n 100 --pattern '*.jpg'\n"
-            "  random_copy_n ./src ./dst -n 100 --regex '.*\\.png$'\n"
-            "  random_copy_n ./src ./dst -n 100 --dry-run\n"
+            "  random_cp ./src ./dst -n 100\n"
+            "  random_cp ./src ./dst -n 100 --pattern '*.jpg'\n"
+            "  random_cp ./src ./dst -n 100 --regex '.*\\.png$'\n"
+            "  random_cp ./src ./dst -n 100 --dry-run\n"
         ),
     )
     parser.add_argument("src")
