@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+prefix=""
+output_dir=""
+timestamp=0
+assume_yes=0
+overwrite=0
+source_dir=""
+
+on_error() {
+  echo "Error: backup failed at line $1" >&2
+  exit 1
+}
+trap 'on_error $LINENO' ERR
+
+usage() {
+  local cmd
+  cmd="$(basename "$0")"
+
+  cat <<EOF
+usage: ${cmd} <source_folder> --prefix PREFIX --dir DIR [options]
+
+Create a .tar.gz backup archive for a folder.
+
+required:
+  source_folder       Folder to archive
+  -p, --prefix PREFIX Archive filename prefix. Required; no default.
+  -d, --dir DIR       Backup output directory. Required; no default.
+
+options:
+  --timestamp         Append current timestamp to archive name: PREFIX_YYMMDDTHHMM.tar.gz
+                      Without this flag, archive name is PREFIX.tar.gz.
+  --overwrite         Overwrite archive file if it already exists.
+  -y, --yes           Assume yes; skip confirmation.
+  -h, --help          Show this help message and exit.
+
+examples:
+  ${cmd} ./my_project --prefix my_project --dir ./backup
+  ${cmd} ./my_project --prefix my_project --dir ./backup --timestamp
+  ${cmd} ./my_project --prefix my_project --dir ./backup --overwrite -y
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+abs_existing_dir() {
+  local path="$1"
+
+  [[ -d "$path" ]] || return 1
+  (cd "$path" && pwd -P)
+}
+
+abs_path_for_dir() {
+  local path="$1"
+  local parent
+  local base
+
+  parent="$(dirname "$path")"
+  base="$(basename "$path")"
+  [[ -d "$parent" ]] || return 1
+  printf '%s/%s' "$(cd "$parent" && pwd -P)" "$base"
+}
+
+confirm() {
+  local answer
+
+  if [[ "$assume_yes" -eq 1 ]]; then
+    return 0
+  fi
+
+  read -r -p "Proceed with backup? [Y]/n " answer
+  case "$answer" in
+    "" | Y | y) return 0 ;;
+    *) echo "Aborted"; exit 0 ;;
+  esac
+}
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -p | --prefix)
+      [[ "$#" -ge 2 ]] || die "$1 requires a value"
+      prefix="$2"
+      shift 2
+      ;;
+    -d | --dir)
+      [[ "$#" -ge 2 ]] || die "$1 requires a value"
+      output_dir="$2"
+      shift 2
+      ;;
+    --timestamp)
+      timestamp=1
+      shift
+      ;;
+    --overwrite)
+      overwrite=1
+      shift
+      ;;
+    -y | --yes)
+      assume_yes=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage >&2
+      die "unknown option: $1"
+      ;;
+    *)
+      if [[ -n "$source_dir" ]]; then
+        usage >&2
+        die "only one source_folder is supported"
+      fi
+      source_dir="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ "$#" -gt 0 ]]; then
+  usage >&2
+  die "unexpected extra arguments: $*"
+fi
+
+[[ -n "$source_dir" ]] || { usage >&2; die "source_folder is required"; }
+[[ -n "$prefix" ]] || { usage >&2; die "--prefix is required"; }
+[[ -n "$output_dir" ]] || { usage >&2; die "--dir is required"; }
+
+[[ "$prefix" != *"/"* ]] || die "--prefix must be a filename prefix, not a path"
+[[ "$prefix" != "." && "$prefix" != ".." ]] || die "--prefix must not be '.' or '..'"
+
+source_abs="$(abs_existing_dir "$source_dir")" || die "source_folder does not exist or is not a directory: $source_dir"
+source_parent="$(dirname "$source_abs")"
+source_name="$(basename "$source_abs")"
+
+if [[ -e "$output_dir" && ! -d "$output_dir" ]]; then
+  die "--dir exists but is not a directory: $output_dir"
+fi
+output_abs="$(abs_path_for_dir "$output_dir")" || die "parent directory for --dir does not exist: $(dirname "$output_dir")"
+
+archive_name="${prefix}.tar.gz"
+if [[ "$timestamp" -eq 1 ]]; then
+  archive_name="${prefix}_$(date +"%y%m%dT%H%M").tar.gz"
+fi
+archive_path="${output_abs}/${archive_name}"
+
+echo "Backup plan:"
+echo "  Source dir : ${source_abs}"
+echo "  Output dir : ${output_abs}"
+echo "  Archive    : ${archive_name}"
+echo "  Timestamp  : $([[ "$timestamp" -eq 1 ]] && echo yes || echo no)"
+echo "  Overwrite  : $([[ "$overwrite" -eq 1 ]] && echo yes || echo no)"
+echo
+
+confirm
+
+mkdir -p "$output_abs"
+
+if [[ -e "$archive_path" && "$overwrite" -eq 0 ]]; then
+  die "backup file already exists: $archive_path (use --overwrite to replace it)"
+fi
+
+tar_args=(-czf "$archive_path")
+if [[ "$output_abs" == "$source_abs" ]]; then
+  tar_args+=(--exclude="${source_name}/${archive_name}")
+elif [[ "$output_abs" == "$source_abs"/* ]]; then
+  output_rel="${output_abs#"$source_abs"/}"
+  tar_args+=(--exclude="${source_name}/${output_rel}" --exclude="${source_name}/${output_rel}/*")
+fi
+tar_args+=(-C "$source_parent" "$source_name")
+
+echo "Creating backup: ${archive_path}"
+tar "${tar_args[@]}"
+
+if [[ ! -s "$archive_path" ]]; then
+  die "backup file not created or empty: $archive_path"
+fi
+
+echo "Backup completed successfully"
+echo "Archive: ${archive_path}"

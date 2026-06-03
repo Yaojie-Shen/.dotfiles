@@ -8,7 +8,7 @@ return {
       "nvimtools/none-ls.nvim",
     },
     opts = {
-      ensure_installed = { "stylua", "ruff", "isort", "prettier", "pyproject-fmt", "shfmt" },
+      ensure_installed = { "stylua", "ruff", "prettier", "pyproject-fmt", "shfmt" },
     },
   },
 
@@ -21,7 +21,7 @@ return {
         lua = { "stylua" },
         css = { "prettier" },
         html = { "prettier" },
-        python = { "ruff_fix", "ruff_format", "isort" },
+        python = { "ruff_fix", "ruff_organize_imports", "ruff_format" },
         toml = { "pyproject-fmt" },
         shell = { "shfmt" },
       },

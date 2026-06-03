@@ -19,11 +19,13 @@ usage: ${cmd} <left.mp4> <right.mp4> [options]
 
 Preview two videos side by side with ffplay, or export the same view with ffmpeg.
 Preview window title is "${cmd}: <left.mp4> vs <right.mp4>".
+Videos with different heights are padded to the taller input before stacking.
 
 dependencies:
   ffplay must be installed and available in PATH for preview mode.
   ffmpeg must be installed and available in PATH for export mode.
-  ffplay and ffmpeg are shipped with FFmpeg.
+  ffprobe is used to read video dimensions.
+  ffplay, ffmpeg, and ffprobe are shipped with FFmpeg.
   Timestamp overlay uses FFmpeg's drawtext filter when --timestamp is enabled.
   On macOS, install it with: brew install ffmpeg
 
@@ -62,6 +64,37 @@ is_positive_integer() {
   [[ "$1" =~ ^[1-9][0-9]*$ ]]
 }
 
+max() {
+  if [[ "$1" -ge "$2" ]]; then
+    printf '%s' "$1"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+probe_video_height() {
+  local path="$1"
+
+  ffprobe \
+    -v error \
+    -select_streams v:0 \
+    -show_entries stream=height \
+    -of csv=p=0 \
+    "$path"
+}
+
+scale_dimension() {
+  local value="$1"
+
+  awk -v value="$value" -v scale="$scale" 'BEGIN {
+    scaled = int(value * scale + 0.5)
+    if (scaled < 1) {
+      scaled = 1
+    }
+    print scaled
+  }'
+}
+
 escape_lavfi_value() {
   local input="$1"
   local output=""
@@ -92,7 +125,25 @@ build_video_filter_chain() {
   if [[ "$scale" != "1" ]]; then
     chain+="scale=iw*${scale}:ih*${scale},"
   fi
-  chain+="setsar=1"
+  chain+="pad=iw:${target_height}:0:(oh-ih)/2:color=black,setsar=1"
+  if [[ "$timestamp" -eq 1 ]]; then
+    chain+=",drawtext=text='%{pts\\:hms}':x=16:y=16:fontsize=${timestamp_size}:fontcolor=white:box=1:boxcolor=black@0.55"
+  fi
+  chain+="${output_label}"
+
+  printf '%s' "$chain"
+}
+
+build_lavfi_movie_chain() {
+  local file_filter="$1"
+  local output_label="$2"
+  local chain
+
+  chain="movie=filename=${file_filter},"
+  if [[ "$scale" != "1" ]]; then
+    chain+="scale=iw*${scale}:ih*${scale},"
+  fi
+  chain+="pad=iw:${target_height}:0:(oh-ih)/2:color=black,setsar=1"
   if [[ "$timestamp" -eq 1 ]]; then
     chain+=",drawtext=text='%{pts\\:hms}':x=16:y=16:fontsize=${timestamp_size}:fontcolor=white:box=1:boxcolor=black@0.55"
   fi
@@ -183,6 +234,7 @@ if [[ -n "$output" ]]; then
 else
   command -v ffplay >/dev/null 2>&1 || die "ffplay not found. Install FFmpeg first, for example: brew install ffmpeg"
 fi
+command -v ffprobe >/dev/null 2>&1 || die "ffprobe not found. Install FFmpeg first, for example: brew install ffmpeg"
 
 if [[ -n "$output" && -e "$output" && "$force" -eq 0 ]]; then
   die "output file already exists: $output (use --overwrite to overwrite)"
@@ -191,6 +243,15 @@ fi
 if [[ -z "$output" && "$force" -eq 1 ]]; then
   die "--overwrite can only be used with --output"
 fi
+
+left_height="$(probe_video_height "$left")"
+right_height="$(probe_video_height "$right")"
+is_positive_integer "$left_height" || die "failed to read video height from: $left"
+is_positive_integer "$right_height" || die "failed to read video height from: $right"
+
+left_scaled_height="$(scale_dimension "$left_height")"
+right_scaled_height="$(scale_dimension "$right_height")"
+target_height="$(max "$left_scaled_height" "$right_scaled_height")"
 
 if [[ -n "$output" ]]; then
   left_video_chain="$(build_video_filter_chain '[0:v]' '[v0]')"
@@ -252,18 +313,8 @@ fi
 left_filter="$(escape_lavfi_value "$left")"
 right_filter="$(escape_lavfi_value "$right")"
 window_title="$(basename "$0"): ${left} vs ${right}"
-timestamp_filter=""
-if [[ "$timestamp" -eq 1 ]]; then
-  timestamp_filter=",drawtext=text='%{pts\\:hms}':x=16:y=16:fontsize=${timestamp_size}:fontcolor=white:box=1:boxcolor=black@0.55"
-fi
-
-if [[ "$scale" == "1" ]]; then
-  filter="movie=filename=${left_filter},setsar=1${timestamp_filter}[v0];"
-  filter+="movie=filename=${right_filter},setsar=1${timestamp_filter}[v1];"
-else
-  filter="movie=filename=${left_filter},scale=iw*${scale}:ih*${scale},setsar=1${timestamp_filter}[v0];"
-  filter+="movie=filename=${right_filter},scale=iw*${scale}:ih*${scale},setsar=1${timestamp_filter}[v1];"
-fi
+filter="$(build_lavfi_movie_chain "$left_filter" '[v0]');"
+filter+="$(build_lavfi_movie_chain "$right_filter" '[v1]');"
 filter+="[v0][v1]hstack=inputs=2[out0]"
 
 ffplay_args=(
