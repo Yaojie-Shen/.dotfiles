@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+target="."
+target_set=0
+interval=1
+alpha="0.30"
+recursive=0
+name_pattern=""
+samples=0
+total=0
+
+usage() {
+  local cmd
+  cmd="$(basename "$0")"
+
+  cat <<EOF
+usage: ${cmd} [path] [options]
+
+Continuously monitor file count under a directory and print growth/shrink speed.
+The smoothed speed uses EMA: smooth = alpha * current + (1 - alpha) * previous.
+
+options:
+  -i, --interval SEC   Poll interval in seconds. Default: 1
+  -a, --alpha VALUE    EMA smoothing alpha in (0, 1]. Lower is smoother. Default: 0.30
+  -n, --name PATTERN   Count only files whose basename matches shell/find pattern, e.g. '*.jpg'
+  --recursive          Count files recursively
+  --total N            Expected final file count; show progress and ETA when speed is positive
+  --samples N          Stop after N printed samples.
+  -h, --help           Show this help message and exit
+
+examples:
+  ${cmd} ./outputs
+  ${cmd} ./outputs --interval 2 --alpha 0.2
+  ${cmd} ./outputs --name '*.jsonl'
+  ${cmd} ./outputs --total 100000
+  ${cmd} ./outputs --recursive --samples 10
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+count_files() {
+  local count entry base
+
+  if [[ "$recursive" -eq 1 ]]; then
+    if [[ -n "$name_pattern" ]]; then
+      { find "$target" -type f -name "$name_pattern" -print 2>/dev/null || true; } | wc -l | tr -d '[:space:]'
+    else
+      { find "$target" -type f -print 2>/dev/null || true; } | wc -l | tr -d '[:space:]'
+    fi
+    return
+  fi
+
+  if [[ -z "$name_pattern" ]]; then
+    LC_ALL=C ls -1Ap "$target" 2>/dev/null | awk 'substr($0, length($0), 1) != "/" { n++ } END { print n + 0 }'
+    return
+  fi
+
+  count=0
+  shopt -s nullglob dotglob
+  for entry in "$target"/*; do
+    [[ -f "$entry" ]] || continue
+    if [[ -n "$name_pattern" ]]; then
+      base="$(basename "$entry")"
+      [[ "$base" == $name_pattern ]] || continue
+    fi
+    ((count += 1))
+  done
+  shopt -u nullglob dotglob
+  printf '%s\n' "$count"
+}
+
+parse_args() {
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      -i | --interval)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        interval="$2"
+        shift 2
+        ;;
+      -a | --alpha)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        alpha="$2"
+        shift 2
+        ;;
+      -n | --name)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        name_pattern="$2"
+        shift 2
+        ;;
+      --recursive)
+        recursive=1
+        shift
+        ;;
+      --total)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        total="$2"
+        shift 2
+        ;;
+      --samples)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        samples="$2"
+        shift 2
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -* )
+        usage >&2
+        die "unknown option: $1"
+        ;;
+      *)
+        if [[ "$target_set" -eq 1 ]]; then
+          usage >&2
+          die "only one path is supported"
+        fi
+        target="$1"
+        target_set=1
+        shift
+        ;;
+    esac
+  done
+
+  [[ "$#" -eq 0 ]] || die "unexpected extra arguments: $*"
+}
+
+validate_args() {
+  [[ -d "$target" ]] || die "path is not a directory: $target"
+  [[ "$interval" =~ ^[1-9][0-9]*$ ]] || die "--interval must be a positive integer"
+  [[ "$samples" =~ ^[0-9]+$ ]] || die "--samples must be a non-negative integer"
+  [[ "$total" =~ ^[0-9]+$ ]] || die "--total must be a non-negative integer"
+  awk -v a="$alpha" 'BEGIN { exit !(a > 0 && a <= 1) }' || die "--alpha must be in (0, 1]"
+}
+
+print_sample() {
+  local scan_s="$1"
+  local count="$2"
+  local delta="$3"
+  local raw="$4"
+  local smooth="$5"
+  local smooth_min="$6"
+  local progress remaining eta
+
+  if [[ "$total" -gt 0 ]]; then
+    progress="$(awk -v c="$count" -v t="$total" 'BEGIN { p = c * 100 / t; if (p > 100) p = 100; printf "%.1f%%", p }')"
+    remaining=$((total - count))
+    eta="$(awk -v remain="$remaining" -v rate="$smooth" 'BEGIN {
+      if (remain <= 0) {
+        printf "done"
+      } else if (rate <= 0) {
+        printf "--"
+      } else {
+        sec = int(remain / rate + 0.5)
+        day = int(sec / 86400)
+        sec = sec % 86400
+        hour = int(sec / 3600)
+        sec = sec % 3600
+        minute = int(sec / 60)
+        second = sec % 60
+        if (day > 0) {
+          printf "%dd%02d:%02d:%02d", day, hour, minute, second
+        } else {
+          printf "%02d:%02d:%02d", hour, minute, second
+        }
+      }
+    }')"
+    printf '%-8s %8d %12d %+9d %9s %12s %12.4f %12.4f %12.2f\n' \
+      "$(date +%H:%M:%S)" "$scan_s" "$count" "$delta" "$progress" "$eta" "$raw" "$smooth" "$smooth_min"
+  else
+    printf '%-8s %8d %12d %+9d %12.4f %12.4f %12.2f\n' \
+      "$(date +%H:%M:%S)" "$scan_s" "$count" "$delta" "$raw" "$smooth" "$smooth_min"
+  fi
+}
+
+parse_args "$@"
+validate_args
+
+target="$(cd "$target" && pwd -P)"
+mode="recursive"
+[[ "$recursive" -eq 1 ]] || mode="non-recursive"
+
+echo "Monitoring file count: $target"
+echo "interval=${interval}s alpha=${alpha} mode=${mode} pattern=${name_pattern:-*}"
+if [[ "$total" -gt 0 ]]; then
+  echo "total=${total}"
+fi
+initial_scan_start="$(date +%s)"
+prev_count="$(count_files)"
+prev_time="$(date +%s)"
+initial_scan_s=$((prev_time - initial_scan_start))
+echo "initial_count=${prev_count} initial_scan_s=${initial_scan_s}s"
+if [[ "$total" -gt 0 ]]; then
+  printf '%-8s %8s %12s %9s %9s %12s %12s %12s %12s\n' "time" "scan_s" "count" "delta" "progress" "eta" "raw/s" "smooth/s" "smooth/min"
+else
+  printf '%-8s %8s %12s %9s %12s %12s %12s\n' "time" "scan_s" "count" "delta" "raw/s" "smooth/s" "smooth/min"
+fi
+
+smooth="0"
+printed=0
+
+while true; do
+  sleep "$interval"
+
+  scan_start="$(date +%s)"
+  now_count="$(count_files)"
+  now_time="$(date +%s)"
+  scan_s=$((now_time - scan_start))
+  dt=$((now_time - prev_time))
+  [[ "$dt" -gt 0 ]] || dt="$interval"
+  delta=$((now_count - prev_count))
+
+  raw="$(awk -v d="$delta" -v t="$dt" 'BEGIN { printf "%.4f", d / t }')"
+  smooth="$(awk -v a="$alpha" -v r="$raw" -v s="$smooth" 'BEGIN { printf "%.4f", a * r + (1 - a) * s }')"
+  smooth_min="$(awk -v s="$smooth" 'BEGIN { printf "%.2f", s * 60 }')"
+  print_sample "$scan_s" "$now_count" "$delta" "$raw" "$smooth" "$smooth_min"
+
+  prev_count="$now_count"
+  prev_time="$now_time"
+  ((printed += 1))
+  if [[ "$samples" -gt 0 && "$printed" -ge "$samples" ]]; then
+    break
+  fi
+done
