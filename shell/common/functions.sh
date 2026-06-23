@@ -117,6 +117,10 @@ lsl() {
   ls "$@" | less
 }
 
+lsc() {
+  command ls "$@" | wc -l | tr -d ' '
+}
+
 append_pythonpath() {
   local p
   if [[ -z $1 ]]; then
