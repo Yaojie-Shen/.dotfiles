@@ -62,7 +62,12 @@ def confirm_action(prompt):
     """Ask for user confirmation."""
     while True:
         try:
-            response = get_input(f"{prompt} (y/n)", color=Colors.YELLOW).lower()
+            response = get_input(f"{prompt} (y/n)", color=Colors.YELLOW)
+            if not response:
+                color_print("Please answer 'y' or 'n'.", Colors.YELLOW)
+                continue
+
+            response = response.lower()
             if response in ['y', 'yes']:
                 return True
             elif response in ['n', 'no']:
