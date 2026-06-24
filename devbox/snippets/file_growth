@@ -10,6 +10,20 @@ recursive=0
 name_pattern=""
 samples=0
 total=0
+ui="append"
+history_limit=1000
+COLOR_RESET=$'\033[0m'
+COLOR_BOLD=$'\033[1m'
+COLOR_DIM=$'\033[2m'
+COLOR_REVERSE=$'\033[7m'
+COLOR_RED=$'\033[31m'
+COLOR_GREEN=$'\033[32m'
+COLOR_YELLOW=$'\033[33m'
+COLOR_BLUE=$'\033[34m'
+COLOR_MAGENTA=$'\033[35m'
+COLOR_CYAN=$'\033[36m'
+COLOR_BG_BLUE=$'\033[44m'
+COLOR_WHITE=$'\033[37m'
 
 usage() {
   local cmd
@@ -28,13 +42,20 @@ options:
   --recursive          Count files recursively
   --total N            Expected final file count; show progress and ETA when speed is positive
   --samples N          Stop after N printed samples.
+  --ui                 Use interactive screen UI with fixed header. Default: append output
+  --history N          Rows to keep in screen mode. Default: 1000
   -h, --help           Show this help message and exit
+
+screen UI keys:
+  h / ?                Show all screen UI keys
+  Esc                  Close help panel only
 
 examples:
   ${cmd} ./outputs
   ${cmd} ./outputs --interval 2 --alpha 0.2
   ${cmd} ./outputs --name '*.jsonl'
   ${cmd} ./outputs --total 100000
+  ${cmd} ./outputs --ui
   ${cmd} ./outputs --recursive --samples 10
 EOF
 }
@@ -107,6 +128,15 @@ parse_args() {
         samples="$2"
         shift 2
         ;;
+      --ui)
+        ui="screen"
+        shift
+        ;;
+      --history)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        history_limit="$2"
+        shift 2
+        ;;
       -h | --help)
         usage
         exit 0
@@ -139,10 +169,25 @@ validate_args() {
   [[ "$interval" =~ ^[1-9][0-9]*$ ]] || die "--interval must be a positive integer"
   [[ "$samples" =~ ^[0-9]+$ ]] || die "--samples must be a non-negative integer"
   [[ "$total" =~ ^[0-9]+$ ]] || die "--total must be a non-negative integer"
+  [[ "$history_limit" =~ ^[1-9][0-9]*$ ]] || die "--history must be a positive integer"
+  [[ "$ui" == "append" || "$ui" == "screen" ]] || die "internal error: unknown ui mode: $ui"
+  if [[ "$ui" == "screen" && (! -t 0 || ! -t 1) ]]; then
+    die "--ui requires an interactive terminal; omit --ui for stable append output"
+  fi
   awk -v a="$alpha" 'BEGIN { exit !(a > 0 && a <= 1) }' || die "--alpha must be in (0, 1]"
 }
 
-print_sample() {
+format_header() {
+  if [[ "$total" -gt 0 ]]; then
+    printf '%-8s %8s %12s %9s %9s %12s %12s %12s %12s' \
+      "time" "scan_s" "count" "delta" "progress" "eta" "raw/s" "smooth/s" "smooth/min"
+  else
+    printf '%-8s %8s %12s %9s %12s %12s %12s' \
+      "time" "scan_s" "count" "delta" "raw/s" "smooth/s" "smooth/min"
+  fi
+}
+
+format_sample() {
   local scan_s="$1"
   local count="$2"
   local delta="$3"
@@ -152,7 +197,7 @@ print_sample() {
   local progress remaining eta
 
   if [[ "$total" -gt 0 ]]; then
-    progress="$(awk -v c="$count" -v t="$total" 'BEGIN { p = c * 100 / t; if (p > 100) p = 100; printf "%.1f%%", p }')"
+    progress="$(awk -v c="$count" -v t="$total" 'BEGIN { printf "%.1f%%", c * 100 / t }')"
     remaining=$((total - count))
     eta="$(awk -v remain="$remaining" -v rate="$smooth" 'BEGIN {
       if (remain <= 0) {
@@ -174,42 +219,30 @@ print_sample() {
         }
       }
     }')"
-    printf '%-8s %8d %12d %+9d %9s %12s %12.4f %12.4f %12.2f\n' \
+    printf '%-8s %8d %12d %+9d %9s %12s %12.4f %12.4f %12.2f' \
       "$(date +%H:%M:%S)" "$scan_s" "$count" "$delta" "$progress" "$eta" "$raw" "$smooth" "$smooth_min"
   else
-    printf '%-8s %8d %12d %+9d %12.4f %12.4f %12.2f\n' \
+    printf '%-8s %8d %12d %+9d %12.4f %12.4f %12.2f' \
       "$(date +%H:%M:%S)" "$scan_s" "$count" "$delta" "$raw" "$smooth" "$smooth_min"
   fi
 }
 
-parse_args "$@"
-validate_args
+print_sample() {
+  format_sample "$@"
+  printf '\n'
+}
 
-target="$(cd "$target" && pwd -P)"
-mode="recursive"
-[[ "$recursive" -eq 1 ]] || mode="non-recursive"
+print_intro() {
+  echo "Monitoring file count: $target"
+  echo "interval=${interval}s alpha=${alpha} mode=${mode} pattern=${name_pattern:-*}"
+  if [[ "$total" -gt 0 ]]; then
+    echo "total=${total}"
+  fi
+  echo "initial_count=${initial_count} initial_scan_s=${initial_scan_s}s"
+}
 
-echo "Monitoring file count: $target"
-echo "interval=${interval}s alpha=${alpha} mode=${mode} pattern=${name_pattern:-*}"
-if [[ "$total" -gt 0 ]]; then
-  echo "total=${total}"
-fi
-initial_scan_start="$(date +%s)"
-prev_count="$(count_files)"
-prev_time="$(date +%s)"
-initial_scan_s=$((prev_time - initial_scan_start))
-echo "initial_count=${prev_count} initial_scan_s=${initial_scan_s}s"
-if [[ "$total" -gt 0 ]]; then
-  printf '%-8s %8s %12s %9s %9s %12s %12s %12s %12s\n' "time" "scan_s" "count" "delta" "progress" "eta" "raw/s" "smooth/s" "smooth/min"
-else
-  printf '%-8s %8s %12s %9s %12s %12s %12s\n' "time" "scan_s" "count" "delta" "raw/s" "smooth/s" "smooth/min"
-fi
-
-smooth="0"
-printed=0
-
-while true; do
-  sleep "$interval"
+sample_once() {
+  local scan_start now_count now_time dt delta raw smooth_min scan_s
 
   scan_start="$(date +%s)"
   now_count="$(count_files)"
@@ -222,12 +255,388 @@ while true; do
   raw="$(awk -v d="$delta" -v t="$dt" 'BEGIN { printf "%.4f", d / t }')"
   smooth="$(awk -v a="$alpha" -v r="$raw" -v s="$smooth" 'BEGIN { printf "%.4f", a * r + (1 - a) * s }')"
   smooth_min="$(awk -v s="$smooth" 'BEGIN { printf "%.2f", s * 60 }')"
-  print_sample "$scan_s" "$now_count" "$delta" "$raw" "$smooth" "$smooth_min"
+  sample_line="$(format_sample "$scan_s" "$now_count" "$delta" "$raw" "$smooth" "$smooth_min")"
 
   prev_count="$now_count"
   prev_time="$now_time"
-  ((printed += 1))
-  if [[ "$samples" -gt 0 && "$printed" -ge "$samples" ]]; then
-    break
+}
+
+run_append() {
+  print_intro
+  format_header
+  printf '\n'
+
+  while true; do
+    sleep "$interval"
+    sample_once
+    printf '%s\n' "$sample_line"
+
+    ((printed += 1))
+    if [[ "$samples" -gt 0 && "$printed" -ge "$samples" ]]; then
+      break
+    fi
+  done
+}
+
+setup_screen() {
+  if exec 3</dev/tty 2>/dev/null; then
+    :
+  elif exec 3<&0 2>/dev/null; then
+    :
+  else
+    die "--ui requires an interactive terminal; omit --ui for stable append output"
   fi
-done
+  saved_stty="$(stty -g <&3 2>/dev/null || true)"
+  printf '\033[?1049h'
+  tput civis 2>/dev/null || true
+  stty -echo -icanon time 0 min 0 <&3 2>/dev/null || true
+  trap 'cleanup_screen; exit 130' INT TERM
+  trap 'cleanup_screen' EXIT
+}
+
+cleanup_screen() {
+  trap - EXIT INT TERM
+  if [[ -n "${saved_stty:-}" ]]; then
+    stty "$saved_stty" <&3 2>/dev/null || true
+  fi
+  exec 3<&- 2>/dev/null || true
+  tput cnorm 2>/dev/null || true
+  printf '\033[?1049l'
+}
+
+terminal_rows() {
+  local size rows
+  size="$(stty size <&3 2>/dev/null || true)"
+  rows="${size%% *}"
+  if [[ "$rows" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$rows"
+  else
+    tput lines 2>/dev/null || printf '24'
+  fi
+}
+
+terminal_cols() {
+  local size cols
+  size="$(stty size <&3 2>/dev/null || true)"
+  cols="${size##* }"
+  if [[ "$cols" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$cols"
+  else
+    tput cols 2>/dev/null || printf '80'
+  fi
+}
+
+trim_line() {
+  local line="$1"
+  local cols="$2"
+  printf '%.*s\n' "$cols" "$line"
+}
+
+screen_line() {
+  local visible="$1"
+  local colored="$2"
+  local cols="$3"
+  if [[ "${#visible}" -gt "$cols" ]]; then
+    printf '%.*s\n' "$cols" "$visible"
+  else
+    printf '%s\n' "$colored"
+  fi
+}
+
+selected_line() {
+  local line="$1"
+  local cols="$2"
+  printf '%s%s%-*.*s%s\n' "$COLOR_BG_BLUE" "$COLOR_WHITE" "$cols" "$cols" "$line" "$COLOR_RESET"
+}
+
+max_view_start() {
+  local body_rows="$1"
+  local row_count="${#history_rows[@]}"
+  local max=$((row_count - body_rows))
+  [[ "$max" -gt 0 ]] || max=0
+  printf '%s\n' "$max"
+}
+
+clamp_selection() {
+  local body_rows="$1"
+  local row_count="${#history_rows[@]}"
+  local max_start
+
+  if [[ "$row_count" -le 0 ]]; then
+    selected_index=-1
+    view_start=0
+    follow=1
+    return
+  fi
+
+  if [[ "$follow" -eq 1 ]]; then
+    selected_index=$((row_count - 1))
+    view_start="$(max_view_start "$body_rows")"
+    return
+  fi
+
+  if [[ "$selected_index" -lt 0 ]]; then
+    selected_index=0
+  elif [[ "$selected_index" -ge "$row_count" ]]; then
+    selected_index=$((row_count - 1))
+  fi
+
+  if [[ "$selected_index" -lt "$view_start" ]]; then
+    view_start="$selected_index"
+  elif [[ "$selected_index" -ge $((view_start + body_rows)) ]]; then
+    view_start=$((selected_index - body_rows + 1))
+  fi
+
+  max_start="$(max_view_start "$body_rows")"
+  if [[ "$view_start" -lt 0 ]]; then
+    view_start=0
+  elif [[ "$view_start" -gt "$max_start" ]]; then
+    view_start="$max_start"
+  fi
+
+  if [[ "$selected_index" -ge $((row_count - 1)) ]]; then
+    follow=1
+  fi
+}
+
+render_screen() {
+  local rows cols body_rows row_count max_start start end i selected_display follow_label total_label header_line title_line status_line keys_line
+  rows="$(terminal_rows)"
+  cols="$(terminal_cols)"
+  body_rows=$((rows - 4))
+  [[ "$body_rows" -gt 0 ]] || body_rows=1
+  row_count="${#history_rows[@]}"
+  total_label="-"
+  [[ "$total" -gt 0 ]] && total_label="$total"
+
+  clamp_selection "$body_rows"
+
+  start="$view_start"
+  end=$((start + body_rows))
+  [[ "$end" -le "$row_count" ]] || end="$row_count"
+  selected_display=0
+  [[ "$selected_index" -ge 0 ]] && selected_display=$((selected_index + 1))
+  follow_label="off"
+  [[ "$follow" -eq 1 ]] && follow_label="on"
+  max_start="$(max_view_start "$body_rows")"
+
+  printf '\033[H\033[2J'
+  title_line="file_growth $target"
+  screen_line "$title_line" "${COLOR_REVERSE}${COLOR_BOLD} file_growth ${COLOR_RESET} ${COLOR_CYAN}${target}${COLOR_RESET}" "$cols"
+  status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} history=${history_limit}"
+  screen_line "$status_line" "${COLOR_DIM}${status_line}${COLOR_RESET}" "$cols"
+  keys_line="rows=${row_count} selected=${selected_display}/${row_count} follow=${follow_label} view=${view_start}/${max_start}  press h or ? for help"
+  screen_line "$keys_line" "${COLOR_YELLOW}${keys_line}${COLOR_RESET}" "$cols"
+
+  if [[ "$show_help" -eq 1 ]]; then
+    screen_line "" "" "$cols"
+    screen_line "Screen UI keys" "${COLOR_BOLD}${COLOR_MAGENTA}Screen UI keys${COLOR_RESET}" "$cols"
+    screen_line "  h / ?              Toggle this help panel" "  ${COLOR_BOLD}h / ?${COLOR_RESET}              Toggle this help panel" "$cols"
+    screen_line "  q                  Close help panel; quit from monitor" "  ${COLOR_BOLD}q${COLOR_RESET}                  Close help panel; quit from monitor" "$cols"
+    screen_line "  Esc                Close help panel only" "  ${COLOR_BOLD}Esc${COLOR_RESET}                Close help panel only" "$cols"
+    screen_line "  k / Up             Scroll up to older rows" "  ${COLOR_BOLD}k / Up${COLOR_RESET}             Scroll up to older rows" "$cols"
+    screen_line "  j / Down           Scroll down to newer rows" "  ${COLOR_BOLD}j / Down${COLOR_RESET}           Scroll down to newer rows" "$cols"
+    screen_line "  PageUp / PageDown  Scroll one page" "  ${COLOR_BOLD}PageUp / PageDown${COLOR_RESET}  Scroll one page" "$cols"
+    screen_line "  g                  Jump to oldest retained row" "  ${COLOR_BOLD}g${COLOR_RESET}                  Jump to oldest retained row" "$cols"
+    screen_line "  G / End            Jump to latest row and follow new samples" "  ${COLOR_BOLD}G / End${COLOR_RESET}            Jump to latest row and follow new samples" "$cols"
+    screen_line "" "" "$cols"
+    screen_line "Press h, ?, or q to return to the monitor." "${COLOR_DIM}Press h, ?, or q to return to the monitor.${COLOR_RESET}" "$cols"
+    return
+  fi
+
+  header_line="$(format_header)"
+  screen_line "$header_line" "${COLOR_BOLD}${COLOR_BLUE}${header_line}${COLOR_RESET}" "$cols"
+
+  for ((i = start; i < end; i++)); do
+    if [[ "$i" -eq "$selected_index" ]]; then
+      selected_line "${history_rows[$i]}" "$cols"
+    else
+      trim_line "${history_rows[$i]}" "$cols"
+    fi
+  done
+}
+
+handle_key() {
+  local key rest page_rows
+  read -rsn1 -t 1 key <&3 || return 0
+  page_rows=$(($(terminal_rows) - 4))
+  [[ "$page_rows" -gt 0 ]] || page_rows=1
+
+  case "$key" in
+    q)
+      if [[ "$show_help" -eq 1 ]]; then
+        screen_needs_render=1
+        show_help=0
+        return 0
+      fi
+      return 1
+      ;;
+    h | \?)
+      screen_needs_render=1
+      if [[ "$show_help" -eq 1 ]]; then
+        show_help=0
+      else
+        show_help=1
+      fi
+      ;;
+    k)
+      screen_needs_render=1
+      show_help=0
+      follow=0
+      selected_index=$((selected_index - 1))
+      ;;
+    j)
+      screen_needs_render=1
+      show_help=0
+      selected_index=$((selected_index + 1))
+      ;;
+    g)
+      screen_needs_render=1
+      show_help=0
+      follow=0
+      selected_index=0
+      ;;
+    G)
+      screen_needs_render=1
+      show_help=0
+      follow=1
+      selected_index=$((${#history_rows[@]} - 1))
+      ;;
+    $'\e')
+      read -rsn1 -t 1 rest <&3 || rest=""
+      if [[ -z "$rest" ]]; then
+        if [[ "$show_help" -eq 1 ]]; then
+          screen_needs_render=1
+          show_help=0
+        fi
+        return 0
+      fi
+      if [[ "$rest" == "[" ]]; then
+        read -rsn1 -t 1 rest <&3 || rest=""
+        case "$rest" in
+          A)
+            screen_needs_render=1
+            show_help=0
+            follow=0
+            selected_index=$((selected_index - 1))
+            ;;
+          B)
+            screen_needs_render=1
+            show_help=0
+            selected_index=$((selected_index + 1))
+            ;;
+          5)
+            read -rsn1 -t 1 rest <&3 || true
+            screen_needs_render=1
+            show_help=0
+            follow=0
+            selected_index=$((selected_index - page_rows))
+            ;;
+          6)
+            read -rsn1 -t 1 rest <&3 || true
+            screen_needs_render=1
+            show_help=0
+            selected_index=$((selected_index + page_rows))
+            ;;
+          F)
+            screen_needs_render=1
+            show_help=0
+            follow=1
+            selected_index=$((${#history_rows[@]} - 1))
+            ;;
+          H)
+            screen_needs_render=1
+            show_help=0
+            follow=0
+            selected_index=0
+            ;;
+        esac
+      fi
+      ;;
+  esac
+
+  clamp_selection "$page_rows"
+  return 0
+}
+
+append_history() {
+  history_rows+=("$sample_line")
+  while [[ "${#history_rows[@]}" -gt "$history_limit" ]]; do
+    history_rows=("${history_rows[@]:1}")
+    if [[ "$selected_index" -gt 0 ]]; then
+      selected_index=$((selected_index - 1))
+    fi
+    if [[ "$view_start" -gt 0 ]]; then
+      view_start=$((view_start - 1))
+    fi
+  done
+  if [[ "$follow" -eq 1 ]]; then
+    selected_index=$((${#history_rows[@]} - 1))
+  fi
+}
+
+run_screen() {
+  local next_sample now
+  setup_screen
+  render_screen
+  next_sample=$((prev_time + interval))
+
+  while true; do
+    if ! handle_key; then
+      break
+    fi
+    if [[ "$screen_needs_render" -eq 1 ]]; then
+      render_screen
+      screen_needs_render=0
+    fi
+
+    now="$(date +%s)"
+    if [[ "$now" -ge "$next_sample" ]]; then
+      sample_once
+      append_history
+      ((printed += 1))
+      render_screen
+
+      if [[ "$samples" -gt 0 && "$printed" -ge "$samples" ]]; then
+        break
+      fi
+      next_sample=$((now + interval))
+    fi
+
+  done
+
+  cleanup_screen
+}
+
+parse_args "$@"
+validate_args
+
+target="$(cd "$target" && pwd -P)"
+mode="recursive"
+[[ "$recursive" -eq 1 ]] || mode="non-recursive"
+
+initial_scan_start="$(date +%s)"
+prev_count="$(count_files)"
+initial_count="$prev_count"
+prev_time="$(date +%s)"
+initial_scan_s=$((prev_time - initial_scan_start))
+
+smooth="0"
+printed=0
+sample_line=""
+saved_stty=""
+declare -a history_rows=()
+follow=1
+selected_index=-1
+view_start=0
+screen_needs_render=0
+show_help=0
+
+case "$ui" in
+  append)
+    run_append
+    ;;
+  screen)
+    run_screen
+    ;;
+esac
