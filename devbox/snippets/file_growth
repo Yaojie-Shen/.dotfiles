@@ -7,11 +7,14 @@ target_set=0
 interval=1
 alpha="0.30"
 recursive=0
+include_dirs=0
 name_pattern=""
+parallel=32
 samples=0
 total=0
-ui="append"
+ui="screen"
 history_limit=1000
+
 COLOR_RESET=$'\033[0m'
 COLOR_BOLD=$'\033[1m'
 COLOR_DIM=$'\033[2m'
@@ -40,9 +43,11 @@ options:
   -a, --alpha VALUE    EMA smoothing alpha in (0, 1]. Lower is smoother. Default: 0.30
   -n, --name PATTERN   Count only files whose basename matches shell/find pattern, e.g. '*.jpg'
   --recursive          Count files recursively
+  -p, --parallel N     Recursive count worker processes. Default: 32; use 0 to fallback to find
+  --include-dirs       Count directories too in non-recursive mode
   --total N            Expected final file count; show progress and ETA when speed is positive
   --samples N          Stop after N printed samples.
-  --ui                 Use interactive screen UI with fixed header. Default: append output
+  --append             Use stable append output instead of the default interactive screen UI
   --history N          Rows to keep in screen mode. Default: 1000
   -h, --help           Show this help message and exit
 
@@ -54,9 +59,11 @@ examples:
   ${cmd} ./outputs
   ${cmd} ./outputs --interval 2 --alpha 0.2
   ${cmd} ./outputs --name '*.jsonl'
+  ${cmd} ./outputs --include-dirs
   ${cmd} ./outputs --total 100000
-  ${cmd} ./outputs --ui
+  ${cmd} ./outputs --append
   ${cmd} ./outputs --recursive --samples 10
+  ${cmd} ./outputs --recursive -p 0
 EOF
 }
 
@@ -69,6 +76,62 @@ count_files() {
   local count entry base
 
   if [[ "$recursive" -eq 1 ]]; then
+    if [[ "$parallel" -gt 0 ]] && command -v python3 >/dev/null 2>&1; then
+      python3 - "$target" "$name_pattern" "$parallel" <<'PY'
+import fnmatch
+import multiprocessing as mp
+import os
+import sys
+
+target, name_pattern, parallel = sys.argv[1], sys.argv[2], int(sys.argv[3])
+try:
+    mp.set_start_method("fork")
+except RuntimeError:
+    pass
+
+def worker(dir_queue, result_queue):
+    count = 0
+    while True:
+        path = dir_queue.get()
+        if path is None:
+            dir_queue.task_done()
+            break
+        try:
+            with os.scandir(path) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            dir_queue.put(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            if not name_pattern or fnmatch.fnmatchcase(entry.name, name_pattern):
+                                count += 1
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        finally:
+            dir_queue.task_done()
+    result_queue.put(count)
+
+dir_queue = mp.JoinableQueue()
+result_queue = mp.Queue()
+processes = [mp.Process(target=worker, args=(dir_queue, result_queue)) for _ in range(parallel)]
+for process in processes:
+    process.start()
+dir_queue.put(target)
+dir_queue.join()
+for _ in processes:
+    dir_queue.put(None)
+dir_queue.join()
+total = 0
+for _ in processes:
+    total += result_queue.get()
+for process in processes:
+    process.join()
+print(total)
+PY
+      return
+    fi
     if [[ -n "$name_pattern" ]]; then
       { find "$target" -type f -name "$name_pattern" -print 2>/dev/null || true; } | wc -l | tr -d '[:space:]'
     else
@@ -78,14 +141,22 @@ count_files() {
   fi
 
   if [[ -z "$name_pattern" ]]; then
-    LC_ALL=C ls -1Ap "$target" 2>/dev/null | awk 'substr($0, length($0), 1) != "/" { n++ } END { print n + 0 }'
+    if [[ "$include_dirs" -eq 1 ]]; then
+      LC_ALL=C ls -1A "$target" 2>/dev/null | wc -l | tr -d '[:space:]'
+    else
+      LC_ALL=C ls -1Ap "$target" 2>/dev/null | awk 'substr($0, length($0), 1) != "/" { n++ } END { print n + 0 }'
+    fi
     return
   fi
 
   count=0
   shopt -s nullglob dotglob
   for entry in "$target"/*; do
-    [[ -f "$entry" ]] || continue
+    if [[ "$include_dirs" -eq 1 ]]; then
+      [[ -f "$entry" || -d "$entry" ]] || continue
+    else
+      [[ -f "$entry" ]] || continue
+    fi
     if [[ -n "$name_pattern" ]]; then
       base="$(basename "$entry")"
       [[ "$base" == $name_pattern ]] || continue
@@ -114,8 +185,17 @@ parse_args() {
         name_pattern="$2"
         shift 2
         ;;
+      -p | --parallel)
+        [[ "$#" -ge 2 ]] || die "$1 requires a value"
+        parallel="$2"
+        shift 2
+        ;;
       --recursive)
         recursive=1
+        shift
+        ;;
+      --include-dirs)
+        include_dirs=1
         shift
         ;;
       --total)
@@ -128,8 +208,8 @@ parse_args() {
         samples="$2"
         shift 2
         ;;
-      --ui)
-        ui="screen"
+      --append)
+        ui="append"
         shift
         ;;
       --history)
@@ -169,14 +249,17 @@ validate_args() {
   [[ "$interval" =~ ^[1-9][0-9]*$ ]] || die "--interval must be a positive integer"
   [[ "$samples" =~ ^[0-9]+$ ]] || die "--samples must be a non-negative integer"
   [[ "$total" =~ ^[0-9]+$ ]] || die "--total must be a non-negative integer"
+  [[ "$parallel" =~ ^[0-9]+$ ]] || die "--parallel must be a non-negative integer"
   [[ "$history_limit" =~ ^[1-9][0-9]*$ ]] || die "--history must be a positive integer"
+  [[ ! ( "$recursive" -eq 1 && "$include_dirs" -eq 1 ) ]] || die "--include-dirs cannot be used with --recursive"
   [[ "$ui" == "append" || "$ui" == "screen" ]] || die "internal error: unknown ui mode: $ui"
   if [[ "$ui" == "screen" && (! -t 0 || ! -t 1) ]]; then
-    die "--ui requires an interactive terminal; omit --ui for stable append output"
+    ui="append"
   fi
   awk -v a="$alpha" 'BEGIN { exit !(a > 0 && a <= 1) }' || die "--alpha must be in (0, 1]"
 }
 
+# Print the table header shared by append output and screen UI.
 format_header() {
   if [[ "$total" -gt 0 ]]; then
     printf '%-8s %8s %12s %9s %9s %12s %12s %12s %12s' \
@@ -187,6 +270,8 @@ format_header() {
   fi
 }
 
+# Format one already-computed sample row. This is intentionally side-effect free so
+# append mode can print it directly and screen mode can store it in history_rows.
 format_sample() {
   local scan_s="$1"
   local count="$2"
@@ -227,27 +312,32 @@ format_sample() {
   fi
 }
 
-print_sample() {
-  format_sample "$@"
-  printf '\n'
-}
-
+# Print the colored intro used by both UI modes. In screen mode render_screen uses
+# the same fields, but draws them inside the alternate screen.
 print_intro() {
-  echo "Monitoring file count: $target"
-  echo "interval=${interval}s alpha=${alpha} mode=${mode} pattern=${name_pattern:-*}"
-  if [[ "$total" -gt 0 ]]; then
-    echo "total=${total}"
-  fi
-  echo "initial_count=${initial_count} initial_scan_s=${initial_scan_s}s"
+  local total_label="-" status_line keys_line
+  [[ "$total" -gt 0 ]] && total_label="$total"
+  printf '%sfile_growth%s %s%s%s\n' "$COLOR_BOLD" "$COLOR_RESET" "$COLOR_CYAN" "$target" "$COLOR_RESET"
+  status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} include_dirs=${include_dirs} parallel=${parallel}"
+  printf '%s%s%s\n' "$COLOR_DIM" "$status_line" "$COLOR_RESET"
+  keys_line="initial_count=${initial_count} initial_scan_s=${initial_scan_s}s scan=idle"
+  printf '%s%s%s\n' "$COLOR_YELLOW" "$keys_line" "$COLOR_RESET"
 }
 
-sample_once() {
-  local scan_start now_count now_time dt delta raw smooth_min scan_s
+# Update global sampling state from a completed count result.
+#
+# Inputs:
+#   $1 scan duration in seconds
+#   $2 counted item count
+#   $3 scan completion time from date +%s
+# Outputs via globals:
+#   sample_line, smooth, prev_count, prev_time
+update_sample_from_count() {
+  local scan_s="$1"
+  local now_count="$2"
+  local now_time="$3"
+  local dt delta raw smooth_min
 
-  scan_start="$(date +%s)"
-  now_count="$(count_files)"
-  now_time="$(date +%s)"
-  scan_s=$((now_time - scan_start))
   dt=$((now_time - prev_time))
   [[ "$dt" -gt 0 ]] || dt="$interval"
   delta=$((now_count - prev_count))
@@ -261,10 +351,89 @@ sample_once() {
   prev_time="$now_time"
 }
 
+# Synchronous sampling for the stable append mode. Do not call through command
+# substitution: this function updates global EMA state used by the next sample.
+sample_once() {
+  local scan_start now_count now_time scan_s
+
+  scan_start="$(date +%s)"
+  now_count="$(count_files)"
+  now_time="$(date +%s)"
+  scan_s=$((now_time - scan_start))
+  update_sample_from_count "$scan_s" "$now_count" "$now_time"
+}
+
+# Convert one async scan result into sample_line for screen mode. The first
+# finished scan establishes a baseline so pre-existing files do not create an
+# artificial initial speed spike.
+format_scan_result() {
+  local scan_s="$1"
+  local now_count="$2"
+  local now_time="$3"
+
+  if [[ "$screen_has_baseline" -eq 0 ]]; then
+    initial_count="$now_count"
+    initial_scan_s="$scan_s"
+    smooth="0.0000"
+    sample_line="$(format_sample "$scan_s" "$now_count" 0 "0.0000" "$smooth" "0.00")"
+    prev_count="$now_count"
+    prev_time="$now_time"
+    screen_has_baseline=1
+    return
+  fi
+
+  update_sample_from_count "$scan_s" "$now_count" "$now_time"
+}
+
+# Start a background count for screen mode. The main UI loop keeps rendering and
+# reading keys while this subshell writes one atomic result file.
+start_async_scan() {
+  [[ -n "${scan_pid:-}" ]] && return
+
+  scan_status="running"
+  scan_file="$(mktemp /tmp/file_growth_scan.XXXXXX)"
+  (
+    scan_start="$(date +%s)"
+    scan_count="$(count_files)"
+    scan_time="$(date +%s)"
+    printf '%s %s %s\n' "$((scan_time - scan_start))" "$scan_count" "$scan_time" > "${scan_file}.tmp"
+    mv "${scan_file}.tmp" "$scan_file"
+  ) &
+  scan_pid="$!"
+}
+
+# Collect a completed background count. Returns success only when sample_line has
+# been refreshed and is ready to append to history_rows.
+collect_async_scan() {
+  local scan_s now_count now_time
+  [[ -n "${scan_pid:-}" ]] || return 1
+
+  if [[ ! -s "$scan_file" ]]; then
+    if ! kill -0 "$scan_pid" 2>/dev/null; then
+      wait "$scan_pid" 2>/dev/null || true
+      scan_pid=""
+      scan_status="error"
+    fi
+    return 1
+  fi
+
+  wait "$scan_pid" 2>/dev/null || true
+  scan_pid=""
+  read -r scan_s now_count now_time < "$scan_file"
+  rm -f "$scan_file" "$scan_file.tmp"
+  scan_file=""
+  scan_status="idle"
+  format_scan_result "$scan_s" "$now_count" "$now_time"
+  return 0
+}
+
+# Stable default mode: synchronous count, sleep, append one row to stdout.
 run_append() {
+  local header_line
+
   print_intro
-  format_header
-  printf '\n'
+  header_line="$(format_header)"
+  printf '%s%s%s\n' "$COLOR_BOLD$COLOR_BLUE" "$header_line" "$COLOR_RESET"
 
   while true; do
     sleep "$interval"
@@ -278,13 +447,14 @@ run_append() {
   done
 }
 
+# Enter alternate-screen mode and configure /dev/tty for non-blocking key reads.
 setup_screen() {
   if exec 3</dev/tty 2>/dev/null; then
     :
   elif exec 3<&0 2>/dev/null; then
     :
   else
-    die "--ui requires an interactive terminal; omit --ui for stable append output"
+    die "interactive screen UI requires a terminal; use --append for stable append output"
   fi
   saved_stty="$(stty -g <&3 2>/dev/null || true)"
   printf '\033[?1049h'
@@ -294,8 +464,16 @@ setup_screen() {
   trap 'cleanup_screen' EXIT
 }
 
+# Restore terminal state and stop any in-flight async scan.
 cleanup_screen() {
   trap - EXIT INT TERM
+  if [[ -n "${scan_pid:-}" ]]; then
+    kill "$scan_pid" 2>/dev/null || true
+    wait "$scan_pid" 2>/dev/null || true
+  fi
+  if [[ -n "${scan_file:-}" ]]; then
+    rm -f "$scan_file" "$scan_file.tmp"
+  fi
   if [[ -n "${saved_stty:-}" ]]; then
     stty "$saved_stty" <&3 2>/dev/null || true
   fi
@@ -304,6 +482,7 @@ cleanup_screen() {
   printf '\033[?1049l'
 }
 
+# Return current terminal row count for screen layout; falls back to 24.
 terminal_rows() {
   local size rows
   size="$(stty size <&3 2>/dev/null || true)"
@@ -315,6 +494,7 @@ terminal_rows() {
   fi
 }
 
+# Return current terminal column count for screen layout; falls back to 80.
 terminal_cols() {
   local size cols
   size="$(stty size <&3 2>/dev/null || true)"
@@ -326,12 +506,8 @@ terminal_cols() {
   fi
 }
 
-trim_line() {
-  local line="$1"
-  local cols="$2"
-  printf '%.*s\n' "$cols" "$line"
-}
-
+# Print a possibly-colored screen line. The first argument is the printable text
+# used for length checks; the second may contain ANSI color sequences.
 screen_line() {
   local visible="$1"
   local colored="$2"
@@ -343,12 +519,14 @@ screen_line() {
   fi
 }
 
+# Print a highlighted history row for the current cursor selection.
 selected_line() {
   local line="$1"
   local cols="$2"
   printf '%s%s%-*.*s%s\n' "$COLOR_BG_BLUE" "$COLOR_WHITE" "$cols" "$cols" "$line" "$COLOR_RESET"
 }
 
+# Largest valid history offset for the current viewport height.
 max_view_start() {
   local body_rows="$1"
   local row_count="${#history_rows[@]}"
@@ -357,6 +535,8 @@ max_view_start() {
   printf '%s\n' "$max"
 }
 
+# Keep selected_index and view_start in bounds while preserving htop-like follow
+# behavior at the latest row.
 clamp_selection() {
   local body_rows="$1"
   local row_count="${#history_rows[@]}"
@@ -399,20 +579,36 @@ clamp_selection() {
   fi
 }
 
+# Redraw the whole alternate screen: fixed status/header area plus scrollable
+# retained history rows.
 render_screen() {
-  local rows cols body_rows row_count max_start start end i selected_display follow_label total_label header_line title_line status_line keys_line
+  local rows cols body_rows history_body_rows row_count max_start start end i selected_display follow_label total_label header_line title_line status_line keys_line scan_hint scan_hint_visible
   rows="$(terminal_rows)"
   cols="$(terminal_cols)"
   body_rows=$((rows - 4))
   [[ "$body_rows" -gt 0 ]] || body_rows=1
+  history_body_rows="$body_rows"
   row_count="${#history_rows[@]}"
   total_label="-"
   [[ "$total" -gt 0 ]] && total_label="$total"
 
-  clamp_selection "$body_rows"
+  scan_hint=""
+  scan_hint_visible=0
+  if [[ "${scan_status:-}" == "running" && "$printed" -lt 2 ]]; then
+    if [[ "$printed" -eq 0 ]]; then
+      scan_hint="initial scan is running; counting files may take a while..."
+    else
+      scan_hint="second scan is running; waiting for a real time interval before speed calculation..."
+    fi
+    scan_hint_visible=1
+    history_body_rows=$((body_rows - 1))
+    [[ "$history_body_rows" -gt 0 ]] || history_body_rows=1
+  fi
+
+  clamp_selection "$history_body_rows"
 
   start="$view_start"
-  end=$((start + body_rows))
+  end=$((start + history_body_rows))
   [[ "$end" -le "$row_count" ]] || end="$row_count"
   selected_display=0
   [[ "$selected_index" -ge 0 ]] && selected_display=$((selected_index + 1))
@@ -422,10 +618,10 @@ render_screen() {
 
   printf '\033[H\033[2J'
   title_line="file_growth $target"
-  screen_line "$title_line" "${COLOR_REVERSE}${COLOR_BOLD} file_growth ${COLOR_RESET} ${COLOR_CYAN}${target}${COLOR_RESET}" "$cols"
-  status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} history=${history_limit}"
+  screen_line "$title_line" "${COLOR_BOLD}file_growth${COLOR_RESET} ${COLOR_CYAN}${target}${COLOR_RESET}" "$cols"
+  status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} include_dirs=${include_dirs} parallel=${parallel}"
   screen_line "$status_line" "${COLOR_DIM}${status_line}${COLOR_RESET}" "$cols"
-  keys_line="rows=${row_count} selected=${selected_display}/${row_count} follow=${follow_label} view=${view_start}/${max_start}  press h or ? for help"
+  keys_line="initial_count=${initial_count} initial_scan_s=${initial_scan_s}s rows=${row_count} selected=${selected_display}/${row_count} follow=${follow_label} view=${view_start}/${max_start} scan=${scan_status}  press h or ? for help"
   screen_line "$keys_line" "${COLOR_YELLOW}${keys_line}${COLOR_RESET}" "$cols"
 
   if [[ "$show_help" -eq 1 ]]; then
@@ -447,15 +643,21 @@ render_screen() {
   header_line="$(format_header)"
   screen_line "$header_line" "${COLOR_BOLD}${COLOR_BLUE}${header_line}${COLOR_RESET}" "$cols"
 
+  if [[ "$scan_hint_visible" -eq 1 ]]; then
+    screen_line "$scan_hint" "${COLOR_DIM}${COLOR_YELLOW}${scan_hint}${COLOR_RESET}" "$cols"
+  fi
+
   for ((i = start; i < end; i++)); do
     if [[ "$i" -eq "$selected_index" ]]; then
       selected_line "${history_rows[$i]}" "$cols"
     else
-      trim_line "${history_rows[$i]}" "$cols"
+      screen_line "${history_rows[$i]}" "${history_rows[$i]}" "$cols"
     fi
   done
 }
 
+# Handle one keypress from /dev/tty. Returns non-zero only when the monitor
+# should quit; q in help closes help instead of exiting.
 handle_key() {
   local key rest page_rows
   read -rsn1 -t 1 key <&3 || return 0
@@ -559,6 +761,8 @@ handle_key() {
   return 0
 }
 
+# Add the latest sample_line to screen history and drop oldest retained rows when
+# --history is exceeded.
 append_history() {
   history_rows+=("$sample_line")
   while [[ "${#history_rows[@]}" -gt "$history_limit" ]]; do
@@ -575,11 +779,13 @@ append_history() {
   fi
 }
 
+# Interactive screen UI: async counting, fixed header, retained-history scrolling.
 run_screen() {
-  local next_sample now
+  local next_scan_time now
   setup_screen
+  start_async_scan
   render_screen
-  next_sample=$((prev_time + interval))
+  next_scan_time=$(( $(date +%s) + interval ))
 
   while true; do
     if ! handle_key; then
@@ -591,8 +797,7 @@ run_screen() {
     fi
 
     now="$(date +%s)"
-    if [[ "$now" -ge "$next_sample" ]]; then
-      sample_once
+    if collect_async_scan; then
       append_history
       ((printed += 1))
       render_screen
@@ -600,7 +805,12 @@ run_screen() {
       if [[ "$samples" -gt 0 && "$printed" -ge "$samples" ]]; then
         break
       fi
-      next_sample=$((now + interval))
+      next_scan_time=$((now + interval))
+    fi
+
+    if [[ -z "${scan_pid:-}" && "$now" -ge "$next_scan_time" ]]; then
+      start_async_scan
+      render_screen
     fi
 
   done
@@ -615,28 +825,37 @@ target="$(cd "$target" && pwd -P)"
 mode="recursive"
 [[ "$recursive" -eq 1 ]] || mode="non-recursive"
 
-initial_scan_start="$(date +%s)"
-prev_count="$(count_files)"
-initial_count="$prev_count"
-prev_time="$(date +%s)"
-initial_scan_s=$((prev_time - initial_scan_start))
-
-smooth="0"
-printed=0
-sample_line=""
-saved_stty=""
-declare -a history_rows=()
-follow=1
-selected_index=-1
-view_start=0
-screen_needs_render=0
-show_help=0
-
 case "$ui" in
   append)
+    initial_scan_start="$(date +%s)"
+    prev_count="$(count_files)"
+    initial_count="$prev_count"
+    prev_time="$(date +%s)"
+    initial_scan_s=$((prev_time - initial_scan_start))
+    smooth="0"
+    printed=0
+    sample_line=""
     run_append
     ;;
   screen)
+    prev_count=0
+    initial_count="pending"
+    prev_time="$(date +%s)"
+    initial_scan_s=0
+    smooth="0"
+    printed=0
+    sample_line=""
+    saved_stty=""
+    scan_pid=""
+    scan_file=""
+    scan_status="idle"
+    screen_has_baseline=0
+    declare -a history_rows=()
+    follow=1
+    selected_index=-1
+    view_start=0
+    screen_needs_render=0
+    show_help=0
     run_screen
     ;;
 esac
