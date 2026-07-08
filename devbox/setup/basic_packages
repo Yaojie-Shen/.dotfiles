@@ -32,6 +32,9 @@ case "$pkg_manager" in
     sudo apt-get install -y fd-find ripgrep
 
     sudo apt-get install -y tree
+
+    # Useful for JSON processing from cli
+    sudo apt-get install -y jq
     ;;
   *)
     echo "Distribution not supported."
