@@ -54,6 +54,9 @@
       path: bashrc
       backup: true
       force: true
+    ~/.codex:
+      path: persistent/codex
+      if: '([ ! -e "$HOME/.codex" ] || [ -L "$HOME/.codex" ]) && mkdir -p persistent/codex'
     ~/.condarc:
     ~/.tmux.conf:
     ~/.persistent:
