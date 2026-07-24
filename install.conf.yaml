@@ -42,6 +42,13 @@
 
 - clean: [ '~' ]
 
+- create:
+    - persistent/codex/sessions
+    - persistent/codex/archived_sessions
+    - persistent/Downloads
+    - persistent/Projects
+    - persistent/autojump
+
 - link:
     ~/.dotfiles:
       path: ""
@@ -54,9 +61,12 @@
       path: bashrc
       backup: true
       force: true
-    ~/.codex:
-      path: persistent/codex
-      if: '([ ! -e "$HOME/.codex" ] || [ -L "$HOME/.codex" ]) && mkdir -p persistent/codex'
+    ~/.codex/sessions:
+      path: persistent/codex/sessions
+      if: '[ ! -e "$HOME/.codex/sessions" ] || [ -L "$HOME/.codex/sessions" ]'
+    ~/.codex/archived_sessions:
+      path: persistent/codex/archived_sessions
+      if: '[ ! -e "$HOME/.codex/archived_sessions" ] || [ -L "$HOME/.codex/archived_sessions" ]'
     ~/.condarc:
     ~/.tmux.conf:
     ~/.persistent:
@@ -64,11 +74,11 @@
     ~/.devbox:
     ~/Downloads:
       path: persistent/Downloads
-      if: '([ ! -e "$HOME/Downloads" ] || [ -L "$HOME/Downloads" ]) && mkdir -p persistent/Downloads'
+      if: '[ ! -e "$HOME/Downloads" ] || [ -L "$HOME/Downloads" ]'
     ~/Projects:
       path: persistent/Projects
-      if: '([ ! -e "$HOME/Projects" ] || [ -L "$HOME/Projects" ]) && mkdir -p persistent/Projects'
+      if: '[ ! -e "$HOME/Projects" ] || [ -L "$HOME/Projects" ]'
     ~/.local/share/autojump: # Cached path db for autojump
       path: persistent/autojump
-      if: '[ "$(uname -s)" = "Linux" ] && mkdir -p persistent/autojump'
+      if: '[ "$(uname -s)" = "Linux" ]'
     ~/.config/nvim: nvim
