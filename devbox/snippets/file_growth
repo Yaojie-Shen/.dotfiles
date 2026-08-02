@@ -10,6 +10,7 @@ recursive=0
 include_dirs=0
 name_pattern=""
 parallel=32
+parallel_set=0
 samples=0
 total=0
 ui="screen"
@@ -35,17 +36,18 @@ usage() {
   cat <<EOF
 usage: ${cmd} [path] [options]
 
-Continuously monitor file count under a directory and print growth/shrink speed.
+Continuously monitor growth/shrink speed. A file target counts completed lines;
+a directory target counts files as before.
 The smoothed speed uses EMA: smooth = alpha * current + (1 - alpha) * previous.
 
 options:
   -i, --interval SEC   Poll interval in seconds. Default: 1
   -a, --alpha VALUE    EMA smoothing alpha in (0, 1]. Lower is smoother. Default: 0.30
-  -n, --name PATTERN   Count only files whose basename matches shell/find pattern, e.g. '*.jpg'
-  --recursive          Count files recursively
-  -p, --parallel N     Recursive count worker processes. Default: 32; use 0 to fallback to find
-  --include-dirs       Count directories too in non-recursive mode
-  --total N            Expected final file count; show progress and ETA when speed is positive
+  -n, --name PATTERN   Directory only: match file basenames, e.g. '*.jpg'
+  -r, --recursive      Directory only: count files recursively
+  -p, --parallel N     Directory only: recursive workers. Default: 32; 0 uses find
+  --include-dirs       Directory only: count directories too in non-recursive mode
+  -t, --total N        Expected final file count; show progress and ETA when speed is positive
   --samples N          Stop after N printed samples.
   --append             Use stable append output instead of the default interactive screen UI
   --history N          Rows to keep in screen mode. Default: 1000
@@ -56,6 +58,8 @@ screen UI keys:
   Esc                  Close help panel only
 
 examples:
+  ${cmd} ./output.jsonl
+  ${cmd} ./output.jsonl --total 100000
   ${cmd} ./outputs
   ${cmd} ./outputs --interval 2 --alpha 0.2
   ${cmd} ./outputs --name '*.jsonl'
@@ -72,8 +76,13 @@ die() {
   exit 1
 }
 
-count_files() {
+count_target() {
   local count entry base
+
+  if [[ -f "$target" ]]; then
+    LC_ALL=C wc -l < "$target" | tr -d '[:space:]'
+    return
+  fi
 
   if [[ "$recursive" -eq 1 ]]; then
     if [[ "$parallel" -gt 0 ]] && command -v python3 >/dev/null 2>&1; then
@@ -188,9 +197,10 @@ parse_args() {
       -p | --parallel)
         [[ "$#" -ge 2 ]] || die "$1 requires a value"
         parallel="$2"
+        parallel_set=1
         shift 2
         ;;
-      --recursive)
+      -r | --recursive)
         recursive=1
         shift
         ;;
@@ -198,7 +208,7 @@ parse_args() {
         include_dirs=1
         shift
         ;;
-      --total)
+      -t | --total)
         [[ "$#" -ge 2 ]] || die "$1 requires a value"
         total="$2"
         shift 2
@@ -245,13 +255,19 @@ parse_args() {
 }
 
 validate_args() {
-  [[ -d "$target" ]] || die "path is not a directory: $target"
+  [[ -f "$target" || -d "$target" ]] || die "path is not a regular file or directory: $target"
   [[ "$interval" =~ ^[1-9][0-9]*$ ]] || die "--interval must be a positive integer"
   [[ "$samples" =~ ^[0-9]+$ ]] || die "--samples must be a non-negative integer"
   [[ "$total" =~ ^[0-9]+$ ]] || die "--total must be a non-negative integer"
   [[ "$parallel" =~ ^[0-9]+$ ]] || die "--parallel must be a non-negative integer"
   [[ "$history_limit" =~ ^[1-9][0-9]*$ ]] || die "--history must be a positive integer"
   [[ ! ( "$recursive" -eq 1 && "$include_dirs" -eq 1 ) ]] || die "--include-dirs cannot be used with --recursive"
+  if [[ -f "$target" ]]; then
+    [[ "$recursive" -eq 0 ]] || die "--recursive cannot be used with a file target"
+    [[ "$include_dirs" -eq 0 ]] || die "--include-dirs cannot be used with a file target"
+    [[ -z "$name_pattern" ]] || die "--name cannot be used with a file target"
+    [[ "$parallel_set" -eq 0 ]] || die "--parallel cannot be used with a file target"
+  fi
   [[ "$ui" == "append" || "$ui" == "screen" ]] || die "internal error: unknown ui mode: $ui"
   if [[ "$ui" == "screen" && (! -t 0 || ! -t 1) ]]; then
     ui="append"
@@ -318,7 +334,11 @@ print_intro() {
   local total_label="-" status_line keys_line
   [[ "$total" -gt 0 ]] && total_label="$total"
   printf '%sfile_growth%s %s%s%s\n' "$COLOR_BOLD" "$COLOR_RESET" "$COLOR_CYAN" "$target" "$COLOR_RESET"
-  status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} include_dirs=${include_dirs} parallel=${parallel}"
+  if [[ "$mode" == "file-lines" ]]; then
+    status_line="mode=${mode} interval=${interval}s alpha=${alpha} total=${total_label}"
+  else
+    status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} include_dirs=${include_dirs} parallel=${parallel}"
+  fi
   printf '%s%s%s\n' "$COLOR_DIM" "$status_line" "$COLOR_RESET"
   keys_line="initial_count=${initial_count} initial_scan_s=${initial_scan_s}s scan=idle"
   printf '%s%s%s\n' "$COLOR_YELLOW" "$keys_line" "$COLOR_RESET"
@@ -357,7 +377,7 @@ sample_once() {
   local scan_start now_count now_time scan_s
 
   scan_start="$(date +%s)"
-  now_count="$(count_files)"
+  now_count="$(count_target)"
   now_time="$(date +%s)"
   scan_s=$((now_time - scan_start))
   update_sample_from_count "$scan_s" "$now_count" "$now_time"
@@ -394,7 +414,7 @@ start_async_scan() {
   scan_file="$(mktemp /tmp/file_growth_scan.XXXXXX)"
   (
     scan_start="$(date +%s)"
-    scan_count="$(count_files)"
+    scan_count="$(count_target)"
     scan_time="$(date +%s)"
     printf '%s %s %s\n' "$((scan_time - scan_start))" "$scan_count" "$scan_time" > "${scan_file}.tmp"
     mv "${scan_file}.tmp" "$scan_file"
@@ -619,7 +639,11 @@ render_screen() {
   printf '\033[H\033[2J'
   title_line="file_growth $target"
   screen_line "$title_line" "${COLOR_BOLD}file_growth${COLOR_RESET} ${COLOR_CYAN}${target}${COLOR_RESET}" "$cols"
-  status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} include_dirs=${include_dirs} parallel=${parallel}"
+  if [[ "$mode" == "file-lines" ]]; then
+    status_line="mode=${mode} interval=${interval}s alpha=${alpha} total=${total_label}"
+  else
+    status_line="mode=${mode} pattern=${name_pattern:-*} interval=${interval}s alpha=${alpha} total=${total_label} include_dirs=${include_dirs} parallel=${parallel}"
+  fi
   screen_line "$status_line" "${COLOR_DIM}${status_line}${COLOR_RESET}" "$cols"
   keys_line="initial_count=${initial_count} initial_scan_s=${initial_scan_s}s rows=${row_count} selected=${selected_display}/${row_count} follow=${follow_label} view=${view_start}/${max_start} scan=${scan_status}  press h or ? for help"
   screen_line "$keys_line" "${COLOR_YELLOW}${keys_line}${COLOR_RESET}" "$cols"
@@ -821,14 +845,20 @@ run_screen() {
 parse_args "$@"
 validate_args
 
-target="$(cd "$target" && pwd -P)"
-mode="recursive"
-[[ "$recursive" -eq 1 ]] || mode="non-recursive"
+if [[ -d "$target" ]]; then
+  target="$(cd "$target" && pwd -P)"
+  mode="recursive"
+  [[ "$recursive" -eq 1 ]] || mode="non-recursive"
+else
+  target_dir="$(cd "$(dirname "$target")" && pwd -P)"
+  target="${target_dir}/$(basename "$target")"
+  mode="file-lines"
+fi
 
 case "$ui" in
   append)
     initial_scan_start="$(date +%s)"
-    prev_count="$(count_files)"
+    prev_count="$(count_target)"
     initial_count="$prev_count"
     prev_time="$(date +%s)"
     initial_scan_s=$((prev_time - initial_scan_start))
