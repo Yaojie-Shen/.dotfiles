@@ -605,7 +605,9 @@ render_screen() {
   local rows cols body_rows history_body_rows row_count max_start start end i selected_display follow_label total_label header_line title_line status_line keys_line scan_hint scan_hint_visible
   rows="$(terminal_rows)"
   cols="$(terminal_cols)"
-  body_rows=$((rows - 4))
+  # Leave the terminal's last row unused. Printing a newline on that row would
+  # scroll the alternate screen and push the fixed title off the top.
+  body_rows=$((rows - 5))
   [[ "$body_rows" -gt 0 ]] || body_rows=1
   history_body_rows="$body_rows"
   row_count="${#history_rows[@]}"
@@ -685,7 +687,7 @@ render_screen() {
 handle_key() {
   local key rest page_rows
   read -rsn1 -t 1 key <&3 || return 0
-  page_rows=$(($(terminal_rows) - 4))
+  page_rows=$(($(terminal_rows) - 5))
   [[ "$page_rows" -gt 0 ]] || page_rows=1
 
   case "$key" in
