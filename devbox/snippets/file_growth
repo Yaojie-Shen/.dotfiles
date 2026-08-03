@@ -47,7 +47,8 @@ options:
   -r, --recursive      Directory only: count files recursively
   -p, --parallel N     Directory only: recursive workers. Default: 32; 0 uses find
   --include-dirs       Directory only: count directories too in non-recursive mode
-  -t, --total N        Expected final file count; show progress and ETA when speed is positive
+  -t, --total N        Expected final count; show progress and ETA
+                       Counts lines for a file or entries for a directory
   --samples N          Stop after N printed samples.
   --append             Use stable append output instead of the default interactive screen UI
   --history N          Rows to keep in screen mode. Default: 1000
@@ -255,24 +256,32 @@ parse_args() {
 }
 
 validate_args() {
-  [[ -f "$target" || -d "$target" ]] || die "path is not a regular file or directory: $target"
+  [[ -n "$target" ]] || die "path cannot be empty"
   [[ "$interval" =~ ^[1-9][0-9]*$ ]] || die "--interval must be a positive integer"
   [[ "$samples" =~ ^[0-9]+$ ]] || die "--samples must be a non-negative integer"
   [[ "$total" =~ ^[0-9]+$ ]] || die "--total must be a non-negative integer"
   [[ "$parallel" =~ ^[0-9]+$ ]] || die "--parallel must be a non-negative integer"
   [[ "$history_limit" =~ ^[1-9][0-9]*$ ]] || die "--history must be a positive integer"
-  [[ ! ( "$recursive" -eq 1 && "$include_dirs" -eq 1 ) ]] || die "--include-dirs cannot be used with --recursive"
-  if [[ -f "$target" ]]; then
-    [[ "$recursive" -eq 0 ]] || die "--recursive cannot be used with a file target"
-    [[ "$include_dirs" -eq 0 ]] || die "--include-dirs cannot be used with a file target"
-    [[ -z "$name_pattern" ]] || die "--name cannot be used with a file target"
-    [[ "$parallel_set" -eq 0 ]] || die "--parallel cannot be used with a file target"
-  fi
   [[ "$ui" == "append" || "$ui" == "screen" ]] || die "internal error: unknown ui mode: $ui"
   if [[ "$ui" == "screen" && (! -t 0 || ! -t 1) ]]; then
     ui="append"
   fi
   awk -v a="$alpha" 'BEGIN { exit !(a > 0 && a <= 1) }' || die "--alpha must be in (0, 1]"
+}
+
+# Validate options whose meaning depends on the target type only after the
+# target appears.
+validate_target() {
+  if [[ -f "$target" ]]; then
+    [[ "$recursive" -eq 0 ]] || die "--recursive cannot be used with a file target"
+    [[ "$include_dirs" -eq 0 ]] || die "--include-dirs cannot be used with a file target"
+    [[ -z "$name_pattern" ]] || die "--name cannot be used with a file target"
+    [[ "$parallel_set" -eq 0 ]] || die "--parallel cannot be used with a file target"
+  elif [[ -d "$target" ]]; then
+    [[ ! ( "$recursive" -eq 1 && "$include_dirs" -eq 1 ) ]] || die "--include-dirs cannot be used with --recursive"
+  else
+    die "path disappeared before monitoring could start: $target"
+  fi
 }
 
 # Print the table header shared by append output and screen UI.
@@ -539,6 +548,44 @@ screen_line() {
   fi
 }
 
+# Wait without assuming whether a missing target will become a file or a
+# directory. Screen mode redraws a compact waiting view; append mode emits
+# timestamped state changes suitable for logs.
+wait_for_target() {
+  local key title_line status_line hint_line
+
+  [[ -f "$target" || -d "$target" ]] && return 0
+
+  if [[ "$ui" == "append" ]]; then
+    printf '%sfile_growth%s %s%s%s\n' "$COLOR_BOLD" "$COLOR_RESET" "$COLOR_CYAN" "$target" "$COLOR_RESET"
+    printf '%s %spath does not exist; waiting for a file or directory to appear%s\n' \
+      "$(date +%H:%M:%S)" "$COLOR_YELLOW" "$COLOR_RESET"
+    while [[ ! -f "$target" && ! -d "$target" ]]; do
+      sleep 1
+    done
+    printf '%s %spath appeared; starting monitor%s\n' \
+      "$(date +%H:%M:%S)" "$COLOR_GREEN" "$COLOR_RESET"
+    return 0
+  fi
+
+  setup_screen
+  while [[ ! -f "$target" && ! -d "$target" ]]; do
+    printf '\033[H\033[2J'
+    title_line="file_growth $target"
+    screen_line "$title_line" "${COLOR_BOLD}file_growth${COLOR_RESET} ${COLOR_CYAN}${target}${COLOR_RESET}" "$(terminal_cols)"
+    status_line="path does not exist; waiting for a file or directory to appear"
+    screen_line "$status_line" "${COLOR_YELLOW}${status_line}${COLOR_RESET}" "$(terminal_cols)"
+    hint_line="checking once per second; press q to quit"
+    screen_line "$hint_line" "${COLOR_DIM}${hint_line}${COLOR_RESET}" "$(terminal_cols)"
+
+    if read -rsn1 -t 1 key <&3 && [[ "$key" == "q" ]]; then
+      cleanup_screen
+      return 1
+    fi
+  done
+  cleanup_screen
+}
+
 # Print a highlighted history row for the current cursor selection.
 selected_line() {
   local line="$1"
@@ -618,7 +665,7 @@ render_screen() {
   scan_hint_visible=0
   if [[ "${scan_status:-}" == "running" && "$printed" -lt 2 ]]; then
     if [[ "$printed" -eq 0 ]]; then
-      scan_hint="initial scan is running; counting files may take a while..."
+      scan_hint="initial scan is running; counting may take a while..."
     else
       scan_hint="second scan is running; waiting for a real time interval before speed calculation..."
     fi
@@ -846,6 +893,11 @@ run_screen() {
 
 parse_args "$@"
 validate_args
+
+if ! wait_for_target; then
+  exit 0
+fi
+validate_target
 
 if [[ -d "$target" ]]; then
   target="$(cd "$target" && pwd -P)"
