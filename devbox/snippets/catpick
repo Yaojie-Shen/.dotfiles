@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+
+"""Select and print one regular file matched by a path glob.
+
+Directory entries are scanned lazily so common modes can return without
+materializing the full match list.
+"""
+
+import argparse
+import fnmatch
+import glob
+import hashlib
+import os
+import secrets
+import shutil
+import sys
+from pathlib import Path
+from typing import Iterator, Optional, Tuple
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Select one regular file matched by a path glob. "
+            "Directory entries are scanned lazily. "
+            "The selected path is printed to stderr."
+        ),
+        epilog=(
+            "examples:\n"
+            "  catpick './outputs/*.json' --random\n"
+            "  catpick './outputs/*.json' --random 500\n"
+            "  catpick './outputs/*.json' --first\n"
+            "  catpick './outputs/*.json' --next\n"
+            "  catpick './data/*/result.json' --next\n"
+            "  catpick './data/**/*.json' --random\n\n"
+            "notes:\n"
+            "  Quote the glob so the shell does not expand it first.\n"
+            "  --random samples from the first N matches; it does not scan all matches.\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "path_glob",
+        nargs="?",
+        default="./*",
+        help="Quoted file glob to search. Default: './*'.",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "-r",
+        "--random",
+        nargs="?",
+        type=int,
+        const=100,
+        metavar="N",
+        help="Choose randomly from the first N matches. Default: 100.",
+    )
+    mode.add_argument(
+        "--first",
+        action="store_true",
+        help="Choose the first matching file and reset sequential state.",
+    )
+    mode.add_argument(
+        "--next",
+        action="store_true",
+        help="Choose the next matching file after the previous sequential selection.",
+    )
+    mode.add_argument(
+        "--index",
+        type=int,
+        metavar="N",
+        help="Choose the Nth matching file in glob traversal order (1-based).",
+    )
+    return parser
+
+
+def normalized_glob(path_glob: str) -> str:
+    return os.path.abspath(os.path.expanduser(path_glob))
+
+
+def iter_directory_entries(directory: Path) -> Iterator[os.DirEntry]:
+    """Yield directory entries without materializing the directory listing."""
+    try:
+        with os.scandir(directory) as entries:
+            yield from entries
+    except OSError:
+        return
+
+
+def iter_path_matches(
+    directory: Path,
+    components: Tuple[str, ...],
+    index: int,
+) -> Iterator[Path]:
+    """Yield glob matches one at a time using direct directory scans."""
+    if index == len(components):
+        try:
+            if directory.is_file():
+                yield directory
+        except OSError:
+            pass
+        return
+
+    component = components[index]
+    is_last = index == len(components) - 1
+
+    if component == "**":
+        # '**' matches zero or more directory levels. Try the shallow path
+        # first, then descend one directory at a time.
+        if is_last:
+            for entry in iter_directory_entries(directory):
+                try:
+                    if entry.is_file():
+                        yield Path(entry.path)
+                    elif entry.is_dir(follow_symlinks=False):
+                        yield from iter_path_matches(directory / entry.name, components, index)
+                except OSError:
+                    continue
+            return
+
+        yield from iter_path_matches(directory, components, index + 1)
+        for entry in iter_directory_entries(directory):
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    yield from iter_path_matches(
+                        directory / entry.name,
+                        components,
+                        index,
+                    )
+            except OSError:
+                continue
+        return
+
+    if not glob.has_magic(component):
+        # Literal path segments do not require scanning their parent directory.
+        candidate = directory / component
+        try:
+            if is_last:
+                if candidate.is_file():
+                    yield candidate
+            elif candidate.is_dir():
+                yield from iter_path_matches(candidate, components, index + 1)
+        except OSError:
+            pass
+        return
+
+    # Scan only this directory; the caller can stop after the first match.
+    for entry in iter_directory_entries(directory):
+        if not fnmatch.fnmatchcase(entry.name, component):
+            continue
+        try:
+            if is_last:
+                if entry.is_file():
+                    yield Path(entry.path)
+            elif entry.is_dir(follow_symlinks=False):
+                yield from iter_path_matches(
+                    directory / entry.name,
+                    components,
+                    index + 1,
+                )
+        except OSError:
+            continue
+
+
+def matching_files(path_glob: str) -> Iterator[Path]:
+    """Yield files matching path_glob without collecting all matches."""
+    pattern = Path(normalized_glob(path_glob))
+    anchor = Path(pattern.anchor)
+    components = pattern.parts[len(anchor.parts):]
+    yield from iter_path_matches(anchor, components, 0)
+
+
+def state_path(path_glob: str) -> Path:
+    """Return the per-glob state file used by sequential selection."""
+    state_root = Path(
+        os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state")
+    ) / "catpick"
+    key = hashlib.sha256(
+        normalized_glob(path_glob).encode("utf-8", errors="surrogateescape")
+    ).hexdigest()
+    return state_root / key
+
+
+def read_last_selection(path: Path) -> Optional[str]:
+    try:
+        return path.read_text(encoding="utf-8", errors="surrogateescape")
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise RuntimeError(f"cannot read sequence state {path}: {exc}") from exc
+
+
+def save_last_selection(path: Path, selected: Path) -> None:
+    try:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(str(selected), encoding="utf-8", errors="surrogateescape")
+        os.replace(temporary, path)
+    except OSError as exc:
+        raise RuntimeError(f"cannot save sequence state {path}: {exc}") from exc
+
+
+def choose_file(
+    files: Iterator[Path],
+    args: argparse.Namespace,
+    path_glob: str,
+) -> Path:
+    """Select a file while consuming no more matches than the mode needs."""
+    if args.random is not None:
+        if args.random < 1:
+            raise RuntimeError(f"random match count must be positive, got {args.random}")
+        # Keep random selection bounded: only the first N matches are sampled.
+        candidates = []
+        for selected in files:
+            candidates.append(selected)
+            if len(candidates) == args.random:
+                return secrets.choice(candidates)
+        if not candidates:
+            raise RuntimeError(f"no files matched {path_glob!r}")
+        return secrets.choice(candidates)
+
+    if args.index is not None:
+        if args.index < 1:
+            raise RuntimeError(f"index must be a positive integer, got {args.index}")
+        for index, selected in enumerate(files, start=1):
+            if index == args.index:
+                save_last_selection(state_path(path_glob), selected)
+                return selected
+        raise RuntimeError(f"no file at index {args.index} for {path_glob!r}")
+
+    sequence_state = state_path(path_glob)
+    if not args.next:
+        selected = next(files, None)
+        if selected is None:
+            raise RuntimeError(f"no files matched {path_glob!r}")
+        save_last_selection(sequence_state, selected)
+        return selected
+
+    last_selected = read_last_selection(sequence_state)
+    first = None
+    last_seen = last_selected is None
+
+    for selected in files:
+        if first is None:
+            first = selected
+        if last_selected is not None:
+            if str(selected) == last_selected:
+                last_seen = True
+                continue
+            if last_seen:
+                save_last_selection(sequence_state, selected)
+                return selected
+
+    if first is None:
+        raise RuntimeError(f"no files matched {path_glob!r}")
+
+    save_last_selection(sequence_state, first)
+    return first
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    try:
+        selected = choose_file(
+            matching_files(args.path_glob),
+            args,
+            args.path_glob,
+        )
+        print(selected, file=sys.stderr)
+        with selected.open("rb") as source:
+            shutil.copyfileobj(source, sys.stdout.buffer)
+    except (OSError, RuntimeError) as exc:
+        print(f"catpick: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
