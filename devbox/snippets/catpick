@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
             "examples:\n"
             "  catpick './outputs/*.json' --random\n"
             "  catpick './outputs/*.json' --random 500\n"
+            "  catpick ./outputs --random\n"
             "  catpick './outputs/*.json' --first\n"
             "  catpick './outputs/*.json' --next\n"
             "  catpick './data/*/result.json' --next\n"
@@ -43,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         "path_glob",
         nargs="?",
         default="./*",
-        help="Quoted file glob to search. Default: './*'.",
+        help="File glob or directory to search. Existing directories use '<dir>/*'. Default: './*'.",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -76,6 +77,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def normalized_glob(path_glob: str) -> str:
     return os.path.abspath(os.path.expanduser(path_glob))
+
+
+def expand_directory_argument(path_glob: str) -> str:
+    """Treat an existing directory argument as a direct-child file glob."""
+    expanded = os.path.expanduser(path_glob)
+    if not glob.has_magic(expanded) and os.path.isdir(expanded):
+        return os.path.join(expanded, "*")
+    return expanded
 
 
 def iter_directory_entries(directory: Path) -> Iterator[os.DirEntry]:
@@ -260,11 +269,12 @@ def choose_file(
 
 def main() -> int:
     args = build_parser().parse_args()
+    path_glob = expand_directory_argument(args.path_glob)
     try:
         selected = choose_file(
-            matching_files(args.path_glob),
+            matching_files(path_glob),
             args,
-            args.path_glob,
+            path_glob,
         )
         print(selected, file=sys.stderr)
         with selected.open("rb") as source:
