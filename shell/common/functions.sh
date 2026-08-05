@@ -121,6 +121,10 @@ lsc() {
   command ls "$@" | wc -l | tr -d ' '
 }
 
+catc() {
+  command cat "$@" | wc -l | tr -d ' '
+}
+
 append_pythonpath() {
   local p
   if [[ -z $1 ]]; then
