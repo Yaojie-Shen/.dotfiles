@@ -1,116 +1,106 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 
-autoload -Uz colors
-colors
+set -Eeuo pipefail
 
-typeset TMPFILE="/tmp/snipkit-install-$$$RANDOM"
-typeset ERROR_FILE="/tmp/snipkit-install-$$$RANDOM"
+PACKAGE_MANAGER=""
 
-spin() {
-  local \
-    before_msg="$1" \
-    after_msg="$2"
-  local spinner
-  local -a spinners
-  spinners=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT:-${HOME}/.devbox}/libexec/devbox-utils}"
+if [[ ! -f "$DEVBOX_UTILS" ]]; then
+  echo "Error: devbox-utils not found at: $DEVBOX_UTILS" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DEVBOX_UTILS"
 
-  # hide cursor
-  tput civis
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options]
 
-  while true; do
-    for spinner in "${spinners[@]}"; do
-      if [[ -f $TMPFILE ]]; then
-        rm -f $TMPFILE
-        tput cnorm
-        return 1
-      fi
-      sleep 0.05
-      printf " $fg[white]$spinner$reset_color  $before_msg\r" 2>/dev/null
-    done
+Install snipkit using Homebrew, APT, DNF, or YUM according to the current system.
 
-    [ $#jobstates = 0 ] && break
-  done
-
-  if [[ -n $after_msg ]]; then
-    printf "\033[2K"
-    printf " $fg_bold[blue]\U2714$reset_color  $after_msg\n"
-  fi 2>/dev/null
-
-  # show cursor
-  tput cnorm || true
+Options:
+  -h, --help    Show this help message
+EOF
 }
 
-execute() {
-  local arg title error
-  local -a args errors
+check_requirements() {
+  local os
+  os="$(uname -s)"
+  PACKAGE_MANAGER="$(detect_package_manager)"
 
-  while (($# > 0)); do
-    case "$1" in
-    --title)
-      title="$2"
-      shift
-      ;;
-    --error)
-      errors+=("$2")
-      shift
-      ;;
-    -*)
-      echo "Invalid option: $1" >&2
-      return 1
-      ;;
-    *)
-      args+=("$1")
-      ;;
-    esac
-    shift
-  done
+  case "$PACKAGE_MANAGER" in
+  brew | apt-get | dnf | yum) ;;
+  *)
+    error "Unsupported system or package manager: ${os}/${PACKAGE_MANAGER}"
+    error "Supported methods: Homebrew, APT, DNF, and YUM"
+    exit 1
+    ;;
+  esac
 
-  {
-    for arg in "${args[@]}"; do
-      eval "$arg" &>$ERROR_FILE
-      # When an error causes
-      if [[ $status -ne 0 ]]; then
-        # error mssages
-        printf "\033[2K" 2>/dev/null
-        printf \
-          " $fg[yellow]\U26A0$reset_color  $title [$fg[red]FAILED$reset_color]\n" \
-          2>/dev/null
-        printf "$status\n" >"$TMPFILE"
-        # additional error messages
-        if (($#errors > 0)); then
-          for error in "${errors[@]}"; do
-            printf "    -> $error\n" 2>/dev/null
-          done
-        fi
-      fi
-    done
-  } &
+  if ! command -v "$PACKAGE_MANAGER" >/dev/null 2>&1; then
+    error "$PACKAGE_MANAGER is required to install snipkit"
+    exit 1
+  fi
 
-  spin \
-    "$title" \
-    "$title [$fg[green]SUCCEEDED$reset_color]"
-
-  if [[ $status -ne 0 ]]; then
-    printf "\033[2K" 2>/dev/null
-    printf "\n $fg[yellow]\U26A0$reset_color  Error occurred, check the log below for more information.\n" 2>/dev/null
-    cat $ERROR_FILE
-    return 1
+  if [[ "$PACKAGE_MANAGER" != "brew" ]] && ! command -v sudo >/dev/null 2>&1; then
+    error "sudo is required to install snipkit with $PACKAGE_MANAGER"
+    exit 1
   fi
 }
 
-execute \
-  --title "Adding source" \
-  --error "Failed to add source" \
-  "echo 'deb [trusted=yes] https://apt.fury.io/lemoony/ /' | tee /etc/apt/sources.list.d/snipkit.list" || exit 1
+install() {
+  if command -v snipkit >/dev/null 2>&1; then
+    success "snipkit is already installed: $(command -v snipkit)"
+    return 0
+  fi
 
-execute \
-  --title "Updating package manager" \
-  --error "Failed to update package manager" \
-  "sudo apt-get update" || exit 1
+  case "$PACKAGE_MANAGER" in
+  brew)
+    info "Installing snipkit via Homebrew..."
+    brew install lemoony/tap/snipkit
+    ;;
+  apt-get)
+    info "Adding the snipkit APT repository..."
+    printf '%s\n' 'deb [trusted=yes] https://apt.fury.io/lemoony/ /' |
+      sudo tee /etc/apt/sources.list.d/snipkit.list >/dev/null
 
-execute \
-  --title "Installing snipkit" \
-  --error "Failed to install snipkit" \
-  "sudo apt-get install -yq --no-install-recommends snipkit" || exit 1
+    info "Updating APT package indexes..."
+    sudo apt-get update
 
-printf " All processes are successfully completed \U1F389\n"
+    info "Installing snipkit via APT..."
+    sudo apt-get install -y --no-install-recommends snipkit
+    ;;
+  dnf | yum)
+    info "Adding the snipkit YUM repository..."
+    printf '%s\n' \
+      '[snipkit]' \
+      'name=Snipkit Private Repo' \
+      'baseurl=https://yum.fury.io/lemoony/' \
+      'enabled=1' \
+      'gpgcheck=0' |
+      sudo tee /etc/yum.repos.d/snipkit.repo >/dev/null
+
+    info "Installing snipkit via ${PACKAGE_MANAGER}..."
+    sudo "$PACKAGE_MANAGER" install -y snipkit
+    ;;
+  esac
+
+  success "snipkit installed successfully!"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    error "Unknown option: $1"
+    usage >&2
+    exit 1
+    ;;
+  esac
+done
+
+check_requirements
+install

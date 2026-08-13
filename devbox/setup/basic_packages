@@ -20,21 +20,31 @@ case "$pkg_manager" in
   apt-get)
     sudo apt-get update
 
-    sudo apt-get install -y zsh rsync tmux aria2 nano git-lfs
+    packages=(
+      zsh rsync tmux aria2 nano git-lfs iputils-ping
+      # System monitoring
+      nvtop htop speedometer atop
+      # Required by some LSP server for neovim
+      npm python3-venv
+      # Required by neovim telescope, optional but useful.
+      fd-find ripgrep
+      tree
+      # Useful for JSON processing from cli
+      jq
+    )
 
-    # System monitoring
-    sudo apt-get install -y nvtop htop speedometer atop
+    available_packages=()
+    for package in "${packages[@]}"; do
+      if apt-cache show "$package" 2>/dev/null | grep -q '^Package: '; then
+        available_packages+=("$package")
+      else
+        echo "Skipping unavailable package: $package" >&2
+      fi
+    done
 
-    # Required by some LSP server for neovim
-    sudo apt-get install -y npm python3-venv
-
-    # Required by neovim telescope, optional but useful.
-    sudo apt-get install -y fd-find ripgrep
-
-    sudo apt-get install -y tree
-
-    # Useful for JSON processing from cli
-    sudo apt-get install -y jq
+    if ((${#available_packages[@]} > 0)); then
+      sudo apt-get install -y "${available_packages[@]}"
+    fi
     ;;
   *)
     echo "Distribution not supported."
