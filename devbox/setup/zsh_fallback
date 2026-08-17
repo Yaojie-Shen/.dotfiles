@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+ACTION="install"
+RC_FILE="$HOME/.bashrc"
+START_MARKER="# >>> AUTO-ZSH-SWITCH START >>>"
+END_MARKER="# <<< AUTO-ZSH-SWITCH END <<<"
+
+DEVBOX_UTILS="${DEVBOX_UTILS:-${DEVBOX_ROOT:-${HOME}/.devbox}/libexec/devbox-utils}"
+if [[ ! -f "$DEVBOX_UTILS" ]]; then
+  echo "Error: devbox-utils not found at: $DEVBOX_UTILS" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$DEVBOX_UTILS"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [options]
+
+Behavior:
+  - Configures ~/.bashrc to switch to zsh only from interactive Bash shells.
+  - Uses a devbox-managed block and does not modify other ~/.bashrc content.
+
+Options:
+  -h, --help       Show this help message
+  -u, --uninstall  Remove the managed zsh auto-switch block
+  --status         Show the managed block and zsh command status
+
+Examples:
+  $(basename "$0")
+  $(basename "$0") --status
+  $(basename "$0") --uninstall
+EOF
+}
+
+configure_zsh_fallback_rc() {
+  local content
+
+  content=$(cat <<'EOF'
+# Only switch to zsh from an interactive shell.
+case $- in *i*)
+if command -v zsh >/dev/null 2>&1; then
+    zsh
+    status=$?
+    if [ $status -eq 0 ]; then
+        exit 0
+    fi
+fi
+;; esac
+EOF
+)
+
+  configure_rc_block "$RC_FILE" "$START_MARKER" "$END_MARKER" "$content"
+}
+
+install() {
+  info "Configuring zsh auto-switch in $RC_FILE"
+  configure_zsh_fallback_rc
+  success "Configured zsh auto-switch block in $RC_FILE"
+}
+
+uninstall() {
+  if [[ ! -f "$RC_FILE" ]] || ! grep -q "$START_MARKER" "$RC_FILE"; then
+    warning "No managed zsh auto-switch block was found in $RC_FILE"
+    return 0
+  fi
+
+  info "Removing zsh auto-switch block from $RC_FILE"
+  remove_rc_block "$RC_FILE" "$START_MARKER" "$END_MARKER"
+  success "Removed zsh auto-switch block from $RC_FILE"
+}
+
+status() {
+  local zsh_path
+  zsh_path="$(command -v zsh 2>/dev/null || true)"
+
+  info "Zsh auto-switch status"
+  printf '  shell rc:       %s\n' "$RC_FILE"
+  if [[ -f "$RC_FILE" ]] && grep -q "$START_MARKER" "$RC_FILE"; then
+    printf '  managed block:  installed\n'
+  else
+    printf '  managed block:  not installed\n'
+  fi
+  printf '  zsh command:    %s\n' "${zsh_path:-not found}"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  -u | --uninstall)
+    ACTION="uninstall"
+    shift
+    ;;
+  --status)
+    ACTION="status"
+    shift
+    ;;
+  *)
+    error "Unknown option: $1"
+    usage >&2
+    exit 1
+    ;;
+  esac
+done
+
+case "$ACTION" in
+install)
+  install
+  ;;
+uninstall)
+  uninstall
+  ;;
+status)
+  status
+  ;;
+esac
