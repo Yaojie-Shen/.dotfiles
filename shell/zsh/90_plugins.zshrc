@@ -1,3 +1,7 @@
+# Must load after every other shell/zsh/*.zshrc file (hence the 90_ prefix): zsh-autosuggestions
+# and fast-syntax-highlighting need to wrap zle widgets defined earlier in startup, and
+# zsh-autosuggestions' own install docs say to source it at the end of .zshrc.
+#
 # Use zplug to manage zsh plugins automatically
 if [ -f /opt/homebrew/opt/zplug/init.zsh ]; then
     # Compatible with macOS (Homebrew on Apple Silicon)

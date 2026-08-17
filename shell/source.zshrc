@@ -1,23 +1,7 @@
-# History
-source "${HOME}/.shell/zsh/history.zshrc"
-
-# Oh My Zsh
-source "${HOME}/.shell/zsh/oh-my-zsh.zshrc"
-
-# Plugins
-source "${HOME}/.shell/zsh/plugins.zshrc"
-
-# Devbox
-source "${HOME}/.shell/zsh/devbox.zshrc"
-
-# Aliases
-source "${HOME}/.shell/common/aliases.sh"
-
-# Exports
-source "${HOME}/.shell/common/exports.sh"
-
-# Functions
-source "${HOME}/.shell/common/functions.sh"
-
-# Custom
-source "${HOME}/.shell/common/custom.sh"
+# Auto-discover and source every shell/zsh/*.zshrc and shell/common/*.sh file.
+# The leading NN_ number in each filename controls load order (lower loads first);
+# files sharing a number load in alphabetical order relative to each other.
+for _shell_script in "${HOME}/.shell/zsh/"*.zshrc(N) "${HOME}/.shell/common/"*.sh(N); do
+    source "${_shell_script}"
+done
+unset _shell_script
