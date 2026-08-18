@@ -12,10 +12,19 @@ source "$DEVBOX_UTILS"
 
 function nvim_install_linux() {
   # Download the latest pre-built Neovim binaries and install them under /opt/nvim
-  curl -LO --progress-bar https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz
+  local tmp_dir archive
+  tmp_dir="$(mktemp -d)"
+  archive="$tmp_dir/nvim-linux-x86_64.tar.gz"
+  trap "rm -rf '$tmp_dir'" EXIT
+
+  curl -L --progress-bar -f \
+    https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz \
+    -o "$archive"
   sudo rm -rf /opt/nvim
-  sudo tar -C /opt --transform='s/^nvim-linux-x86_64/nvim/' -xzf nvim-linux-x86_64.tar.gz
-  rm nvim-linux-x86_64.tar.gz # Cleanup
+  sudo tar -C /opt --transform='s/^nvim-linux-x86_64/nvim/' -xzf "$archive"
+
+  rm -rf "$tmp_dir"
+  trap - EXIT
 }
 
 function nvim_configure_linux() {

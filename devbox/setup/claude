@@ -63,7 +63,6 @@ check_installer_prerequisites() {
   local missing=()
 
   command -v bash >/dev/null 2>&1 || missing+=(bash)
-  command -v jq >/dev/null 2>&1 || missing+=(jq)
   command -v mktemp >/dev/null 2>&1 || missing+=(mktemp)
   command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || missing+=(curl-or-wget)
 
@@ -113,7 +112,22 @@ complete_onboarding() (
   trap 'rm -f "$tmp_file"' EXIT
 
   if [[ -f "$config_file" ]]; then
-    if ! jq '.hasCompletedOnboarding = true' "$config_file" >"$tmp_file"; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      error "python3 is required to update the existing $config_file"
+      return 1
+    fi
+    if ! python3 - "$config_file" >"$tmp_file" <<'PY'; then
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as file:
+    config = json.load(file)
+if not isinstance(config, dict):
+    raise ValueError("Claude Code config must be a JSON object")
+config["hasCompletedOnboarding"] = True
+json.dump(config, sys.stdout, ensure_ascii=False, indent=2)
+sys.stdout.write("\n")
+PY
       error "Could not parse $config_file as JSON; leaving it unchanged"
       return 1
     fi
