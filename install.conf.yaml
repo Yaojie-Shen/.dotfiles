@@ -45,6 +45,9 @@
 - create:
     - persistent/codex/sessions
     - persistent/codex/archived_sessions
+    - persistent/claude/projects
+    - persistent/claude/sessions
+    - persistent/claude/file-history
     - persistent/Downloads
     - persistent/Projects
     - persistent/autojump
@@ -67,6 +70,18 @@
     ~/.codex/archived_sessions:
       path: persistent/codex/archived_sessions
       if: '[ ! -e "$HOME/.codex/archived_sessions" ] || [ -L "$HOME/.codex/archived_sessions" ]'
+    ~/.claude/projects:
+      path: persistent/claude/projects
+      if: '[ ! -e "$HOME/.claude/projects" ] || [ -L "$HOME/.claude/projects" ]'
+    ~/.claude/sessions:
+      path: persistent/claude/sessions
+      if: '[ ! -e "$HOME/.claude/sessions" ] || [ -L "$HOME/.claude/sessions" ]'
+    ~/.claude/file-history:
+      path: persistent/claude/file-history
+      if: '[ ! -e "$HOME/.claude/file-history" ] || [ -L "$HOME/.claude/file-history" ]'
+    ~/.claude/history.jsonl:
+      path: persistent/claude/history.jsonl
+      if: 'touch persistent/claude/history.jsonl; [ ! -e "$HOME/.claude/history.jsonl" ] || [ -L "$HOME/.claude/history.jsonl" ]'
     ~/.condarc:
     ~/.tmux.conf:
     ~/.persistent:
