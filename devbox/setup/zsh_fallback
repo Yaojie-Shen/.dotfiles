@@ -22,6 +22,7 @@ Usage: $(basename "$0") [options]
 Behavior:
   - Configures ~/.bashrc to switch to zsh only from interactive Bash shells.
   - Uses a devbox-managed block and does not modify other ~/.bashrc content.
+  - Installation is disabled on macOS; status and uninstall remain available.
 
 Options:
   -h, --help       Show this help message
@@ -38,24 +39,26 @@ EOF
 configure_zsh_fallback_rc() {
   local content
 
-  content=$(cat <<'EOF'
-# Only switch to zsh from an interactive shell.
-case $- in *i*)
-if command -v zsh >/dev/null 2>&1; then
-    zsh
-    status=$?
-    if [ $status -eq 0 ]; then
-        exit 0
+  content='# Only switch to zsh from an interactive shell.
+case $- in
+*i*)
+    if command -v zsh >/dev/null 2>&1; then
+        if zsh; then
+            exit 0
+        fi
     fi
-fi
-;; esac
-EOF
-)
+    ;;
+esac'
 
   configure_rc_block "$RC_FILE" "$START_MARKER" "$END_MARKER" "$content"
 }
 
 install() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    error "zsh fallback installation is disabled on macOS"
+    return 1
+  fi
+
   info "Configuring zsh auto-switch in $RC_FILE"
   configure_zsh_fallback_rc
   success "Configured zsh auto-switch block in $RC_FILE"
