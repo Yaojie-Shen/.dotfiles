@@ -1,0 +1,5 @@
+# Increase throughput when downloading many wheels from a fast package index.
+concurrent-downloads = 100
+
+# Keep installation fast; Python will compile bytecode on first import.
+compile-bytecode = false

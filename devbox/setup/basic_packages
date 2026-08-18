@@ -28,7 +28,7 @@ case "$pkg_manager" in
       npm python3-venv
       # Required by neovim telescope, optional but useful.
       fd-find ripgrep
-      tree
+      tree pv pigz
       # Useful for JSON processing from cli
       jq
     )

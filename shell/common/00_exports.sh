@@ -11,5 +11,8 @@ export OLLAMA_MODELS="${HOME}/.persistent/cache/ollama"
 export PIP_CACHE_DIR="${HOME}/.persistent/cache/pip"
 [ -d "$PIP_CACHE_DIR" ] || mkdir -p "$PIP_CACHE_DIR"
 
+# Set uv cache dir to persistent folder
+export UV_CACHE_DIR="${HOME}/.persistent/cache/uv"
+
 # Set conda cache dir to persistent folder
 export CONDA_PKGS_DIRS="${HOME}/.persistent/cache/conda"
