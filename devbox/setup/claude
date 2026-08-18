@@ -23,9 +23,11 @@ Behavior:
   - When CLAUDE_CODE_OAUTH_TOKEN is provided, marks the Claude Code onboarding flow complete without replacing other ~/.claude.json values.
   - Does not start Claude Code after installation unless --launch is passed.
   - Never writes authentication tokens.
+  - Uninstall removes only native installer files and preserves Claude Code configuration and authentication data.
 
 Options:
   -h, --help                 Show this help message
+  -u, --uninstall            Remove the native Claude Code installation
   --status                   Show detected Claude Code and authentication state
   --doctor                   Run Claude Code's built-in diagnostic command
   --upgrade                  Update an existing Claude Code install, or install if missing
@@ -40,6 +42,7 @@ Examples:
   $(basename "$0")
   $(basename "$0") --launch
   $(basename "$0") --upgrade
+  $(basename "$0") --uninstall
   $(basename "$0") --status
 EOF
   exit 0
@@ -215,6 +218,30 @@ upgrade() {
   launch_claude
 }
 
+uninstall() {
+  local bin_path data_dir removed_any=0
+  bin_path="${HOME}/.local/bin/claude"
+  data_dir="${HOME}/.local/share/claude"
+
+  if [[ -e "$bin_path" || -L "$bin_path" ]]; then
+    info "Removing native Claude Code command: $bin_path"
+    rm -f "$bin_path"
+    removed_any=1
+  fi
+
+  if [[ -e "$data_dir" || -L "$data_dir" ]]; then
+    info "Removing native Claude Code version data: $data_dir"
+    rm -rf "$data_dir"
+    removed_any=1
+  fi
+
+  if [[ "$removed_any" -eq 1 ]]; then
+    success "Native Claude Code installation removed. Kept ~/.claude and ~/.claude.json."
+  else
+    warning "No native Claude Code installation found at $bin_path or $data_dir"
+  fi
+}
+
 doctor() {
   local resolved
   resolved="$(command_path)"
@@ -231,6 +258,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
   -h | --help)
     usage
+    ;;
+  -u | --uninstall)
+    ACTION="uninstall"
+    shift
     ;;
   --status)
     ACTION="status"
@@ -266,6 +297,9 @@ install)
   ;;
 upgrade)
   upgrade
+  ;;
+uninstall)
+  uninstall
   ;;
 status)
   status
