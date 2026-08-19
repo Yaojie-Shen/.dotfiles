@@ -84,6 +84,7 @@
       if: 'touch persistent/claude/history.jsonl; [ ! -e "$HOME/.claude/history.jsonl" ] || [ -L "$HOME/.claude/history.jsonl" ]'
     ~/.condarc:
     ~/.tmux.conf:
+    ~/.tmux/scripts: tmux/scripts
     ~/.config/uv/uv.toml: uv/uv.toml
     ~/.persistent:
     ~/.shell:

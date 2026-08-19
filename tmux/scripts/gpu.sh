@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Fixed-width average GPU load + memory usage for tmux status bar.
+# On Apple Silicon, GPU memory is unified memory, so the second percentage is
+# the GPU's in-use system memory divided by total system memory.
 set -uo pipefail
 
 if command -v nvidia-smi >/dev/null 2>&1; then
@@ -13,6 +15,22 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     # A one-off nvidia-smi query failure on a machine that does have a GPU -
     # keep the width matching real content, since the next tick likely goes
     # back to it (unlike the no-GPU branch below, which is permanent).
+    printf "%11s" "N/A"
+  fi
+elif [ "$(uname -s)" = "Darwin" ] && command -v ioreg >/dev/null 2>&1; then
+  GPU_STATS=$(ioreg -r -c IOAccelerator -l -w 0 2>/dev/null |
+    awk '/"PerformanceStatistics"/ { print; exit }')
+  GPU_LOAD=$(printf "%s\n" "$GPU_STATS" |
+    sed -nE 's/.*"Device Utilization %"=([0-9]+).*/\1/p')
+  GPU_USED=$(printf "%s\n" "$GPU_STATS" |
+    sed -nE 's/.*"In use system memory"=([0-9]+).*/\1/p')
+  TOTAL_MEM=$(sysctl -n hw.memsize 2>/dev/null || true)
+
+  if [ -n "$GPU_LOAD" ] && [ -n "$GPU_USED" ] && [ -n "$TOTAL_MEM" ]; then
+    GPU_MEM=$((GPU_USED * 100 / TOTAL_MEM))
+    [ "$GPU_MEM" -gt 100 ] && GPU_MEM=100
+    printf "%3d%% / %3d%%" "$GPU_LOAD" "$GPU_MEM"
+  else
     printf "%11s" "N/A"
   fi
 else

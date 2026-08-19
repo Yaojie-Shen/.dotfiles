@@ -3,19 +3,39 @@
 # between K/s, M/s and G/s.
 # Rate needs two samples, so this keeps the last one in a state file and
 # diffs against it each run - non-blocking, unlike sleeping between samples.
-# Only sums eth*/en*/wlan*/wlp* interfaces (physical-ish NIC naming), not
-# docker/veth/bridge/lxc interfaces, to avoid double-counting bridged traffic.
+# Only sums physical-ish NIC names, not docker/veth/bridge/lxc interfaces, to
+# avoid double-counting bridged traffic.
 set -uo pipefail
 
-STATE="/tmp/.dotfiles_tmux_netspeed_${USER:-$(id -un)}"
+STATE="${TMPDIR:-/tmp}/.dotfiles_tmux_netspeed_${USER:-$(id -un)}"
 
-if [ ! -r /proc/net/dev ]; then
+COUNTERS=""
+case $(uname -s) in
+  Darwin)
+    COUNTERS=$(netstat -ibn 2>/dev/null | awk '
+      $1 ~ /^en[0-9]+$/ && $3 ~ /^<Link#/ {
+        rx += $7; tx += $10; found = 1
+      }
+      END { if (found) print rx, tx }')
+    ;;
+  Linux)
+    if [ -r /proc/net/dev ]; then
+      COUNTERS=$(awk '
+        $1 ~ /^(eth|en|wlan|wlp)/ {
+          gsub(":", "", $1); rx += $2; tx += $10; found = 1
+        }
+        END { if (found) print rx, tx }' /proc/net/dev)
+    fi
+    ;;
+esac
+
+if [ -z "$COUNTERS" ]; then
   printf "%13s" "N/A"
   exit 0
 fi
 
 NOW=$(date +%s)
-set -- $(awk '$1 ~ /^(eth|en|wlan|wlp)/ { gsub(":", "", $1); rx += $2; tx += $10 } END { print rx+0, tx+0 }' /proc/net/dev)
+set -- $COUNTERS
 RX_NOW=$1
 TX_NOW=$2
 
