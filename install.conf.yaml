@@ -82,6 +82,12 @@
     ~/.claude/history.jsonl:
       path: persistent/claude/history.jsonl
       if: 'touch persistent/claude/history.jsonl; [ ! -e "$HOME/.claude/history.jsonl" ] || [ -L "$HOME/.claude/history.jsonl" ]'
+    ~/.claude/settings.json:
+      path: claude/settings.json
+      if: '[ ! -e "$HOME/.claude/settings.json" ] || [ -L "$HOME/.claude/settings.json" ]'
+    ~/.claude/statusline.sh:
+      path: claude/statusline.sh
+      if: '[ ! -e "$HOME/.claude/statusline.sh" ] || [ -L "$HOME/.claude/statusline.sh" ]'
     ~/.condarc:
     ~/.tmux.conf:
     ~/.tmux/scripts: tmux/scripts

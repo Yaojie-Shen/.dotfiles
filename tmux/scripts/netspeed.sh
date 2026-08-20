@@ -54,7 +54,9 @@ echo "$NOW $RX_NOW $TX_NOW" > "$STATE"
 
 fmt() {
   local kb=$1
-  if [ "$kb" -ge 1048576 ]; then
+  # Switch to G slightly early (1023900, not 1024^2): near the boundary,
+  # "%5.1fM" renders 1000.0+ as 6 chars, overflowing the fixed width.
+  if [ "$kb" -ge 1023900 ]; then
     awk -v kb="$kb" 'BEGIN { printf "%5.1fG", kb / 1048576 }'
   elif [ "$kb" -ge 1024 ]; then
     awk -v kb="$kb" 'BEGIN { printf "%5.1fM", kb / 1024 }'
@@ -63,4 +65,4 @@ fmt() {
   fi
 }
 
-printf " %s  %s" "$(fmt "$RX_K")" "$(fmt "$TX_K")"
+printf "󰇚 %s | 󰕒 %s" "$(fmt "$RX_K")" "$(fmt "$TX_K")"
